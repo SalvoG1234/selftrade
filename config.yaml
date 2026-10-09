@@ -1,0 +1,98 @@
+project: selftrade
+
+data:
+  source: csv                # csv | freqtrade_json | synthetic | mt5
+  csv: data/sample_ohlcv.csv
+  datetime_col: timestamp
+  timeframe: 1h
+  symbol: BTC/USDT           # for FX/CFD (Trading.com): EURUSD
+  min_rows: 800
+  synthetic_rows: 12000
+  max_rows: 0
+
+backtest:
+  initial_cash: 10000.0
+  fee_bps: 5.0               # WARNING: crypto default. For FX run `mt5 costs`
+  slippage_bps: 2.0
+  position_size: 0.95
+  allow_short: false
+
+evaluation:
+  folds: 4
+  train_frac: 0.6
+  holdout_frac: 0.2
+  min_trades: 8
+  max_drawdown: 0.60
+  metric: sharpe             # sharpe | sortino | return | calmar
+  complexity_penalty: 0.01
+
+evolution:
+  generations: 5
+  population: 6
+  elite: 2
+  seed: 7
+  mode: explore              # params | explore
+  mutation_rate: 0.35
+  crossover: true
+
+llm:
+  enabled: true
+  base_url: http://localhost:11434
+  model: qwen3-coder:30b     # or qwen2.5-coder:7b / deepseek-r1:14b (8-16 GB VRAM)
+  embed_model: embeddinggemma
+  num_ctx: 8192
+  num_predict: 512       # cap generation so slow/CPU Ollama stays bounded
+  temperature: 0.2
+  timeout: 180.0
+
+rea:
+  enabled: false
+  dry_run: true
+  node_cmd: npx
+  package: rea-agents@latest
+  provider: ghidra
+  ghidra_dir: C:\tools\ghidra_12.1.4_PUBLIC
+  java_home: C:\tools\jdk-21
+  targets: []                # every target requires authorized: true
+
+mt5:                         # Trading.com
+  enabled: false             # talks to the terminal
+  live: false                # ARMS the bridge for order sending
+  require_demo: true         # a real account is refused
+  require_stop: true
+  terminal_path: 'C:\Program Files\MetaTrader 5\terminal64.exe'
+  login: 0
+  password_env: SELFTD_MT5_PASSWORD   # only the NAME of the variable
+  server: ""                 # e.g. mt5-us.trading.com / Trading.comEU-MT5
+  symbol: EURUSD
+  suffix: ""
+  timeframe: 1h
+  bars: 20000
+  deviation: 20
+  magic: 20261009
+  max_lots: 0.50
+  max_positions: 1
+  risk_pct: 0.005
+  fixed_lots: 0.01
+  sl_fallback_points: 500
+  max_spread_points: 25
+  allowed_symbols: []
+
+paper:
+  window: holdout            # holdout | recent | full
+  window_bars: 2000
+  step_bars: 168
+  max_ticks: 0
+
+dashboard:
+  host: 127.0.0.1
+  port: 8787
+  auto_refresh_s: 15
+
+session_file: state/session.json
+memory:
+  db: state/selftrade.db
+notify:
+  enabled: false
+  telegram_token_env: SELFTD_TELEGRAM_TOKEN
+  telegram_chat_id_env: SELFTD_TELEGRAM_CHAT_ID

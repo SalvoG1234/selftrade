@@ -1,0 +1,249 @@
+"""Export the champion (or a sampled) genome as a freqtrade strategy file.
+
+The exported file is deliberately **self-contained**: the pure indicator and
+signal logic lives in a module-level ``compute_signals(df)`` that needs only
+numpy/pandas, so it can be imported and compared against the package by the
+parity test without a freqtrade install.  The ``IStrategy`` subclass is guarded
+behind a ``try/except`` import.
+
+Exit mechanics differ and this is declared in the file header: freqtrade uses
+``minimal_roi`` / ``stoploss``, whereas the selftrade engine fills at the target
+price and evaluates stops intrabar (including gap fills).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from .genome import genome_key, validate_genome
+
+_INDICATORS = '''
+def _ema(series, period):
+    period = max(1, int(period))
+    return series.ewm(span=period, adjust=False, min_periods=period).mean()
+
+
+def _sma(series, period):
+    period = max(1, int(period))
+    return series.rolling(period, min_periods=period).mean()
+
+
+def _rsi(series, period=14):
+    period = max(1, int(period))
+    delta = series.diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    out = 100.0 - (100.0 / (1.0 + rs))
+    out = out.where(~((avg_loss == 0.0) & (avg_gain > 0.0)), 100.0)
+    out = out.where(~((avg_loss == 0.0) & (avg_gain == 0.0)), 50.0)
+    return out
+
+
+def _atr(df, period=14):
+    period = max(1, int(period))
+    prev_close = df["close"].shift(1)
+    tr = pd.concat(
+        [
+            df["high"] - df["low"],
+            (df["high"] - prev_close).abs(),
+            (df["low"] - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+
+
+def _bollinger(series, period=20, num_std=2.0):
+    period = max(1, int(period))
+    mid = series.rolling(period, min_periods=period).mean()
+    sd = series.rolling(period, min_periods=period).std(ddof=0)
+    return mid - num_std * sd, mid, mid + num_std * sd
+
+
+def _donchian(df, period=20):
+    period = max(1, int(period))
+    upper = df["high"].rolling(period, min_periods=period).max()
+    lower = df["low"].rolling(period, min_periods=period).min()
+    return lower, (upper + lower) / 2.0, upper
+'''
+
+
+def _signal_body(family: str) -> str:
+    if family == "trend_momentum":
+        return '''
+    close = df["close"]
+    fast = _ema(close, P["ema_fast"])
+    slow = _ema(close, P["ema_slow"])
+    r = _rsi(close, P["rsi_period"])
+    up = (fast > slow) & (r > P["rsi_min"])
+    down = (fast < slow) & (r < (100.0 - P["rsi_min"]))
+    if P["use_atr_filter"]:
+        ratio = _atr(df, P["atr_period"]) / close
+        ok = ratio <= ratio.rolling(100, min_periods=20).median()
+        up = up & ok
+        down = down & ok
+    long_entry, long_exit = up, ~up
+    short_entry, short_exit = down, ~down
+'''
+    if family == "rsi_reversion":
+        return '''
+    close = df["close"]
+    r = _rsi(close, P["rsi_period"])
+    long_entry = r < P["rsi_buy"]
+    long_exit = r > P["rsi_exit"]
+    short_entry = r > (100.0 - P["rsi_buy"])
+    short_exit = r < (100.0 - P["rsi_exit"])
+    if P["use_sma_filter"]:
+        trend = close > _sma(close, P["sma_filter_period"])
+        long_entry = long_entry & trend
+        short_entry = short_entry & ~trend
+'''
+    if family == "donchian_breakout":
+        return '''
+    close = df["close"]
+    _, _, upper = _donchian(df, P["entry_period"])
+    lower_exit, _, _ = _donchian(df, P["exit_period"])
+    upper_prev = upper.shift(1)
+    lower_exit_prev = lower_exit.shift(1)
+    long_entry = close > upper_prev
+    long_exit = close < lower_exit_prev
+    short_entry = close < lower_exit_prev
+    short_exit = close > upper_prev
+    if P["use_atr_filter"]:
+        ratio = _atr(df, P["atr_period"]) / close
+        ok = ratio <= ratio.rolling(100, min_periods=20).median()
+        long_entry = long_entry & ok
+        short_entry = short_entry & ok
+'''
+    if family == "bollinger_reversion":
+        return '''
+    close = df["close"]
+    lower, mid, upper = _bollinger(close, P["bb_period"], P["bb_std"])
+    long_entry = close < lower
+    short_entry = close > upper
+    if P["exit_at_mid"]:
+        long_exit = close >= mid
+        short_exit = close <= mid
+    else:
+        long_exit = close > upper
+        short_exit = close < lower
+    if P["use_rsi_filter"]:
+        r = _rsi(close, P["rsi_period"])
+        long_entry = long_entry & (r < 50.0)
+        short_entry = short_entry & (r > 50.0)
+'''
+    raise ValueError(f"unknown family {family!r}")
+
+
+HEADER = '''# ---------------------------------------------------------------------------
+# GENERATED by selftrade `export`. Do not edit by hand.
+#
+# Exit mechanics differ from this strategy's Python engine:
+#   * selftrade fills at the target price intrabar; freqtrade uses minimal_roi
+#     (a time-based take-profit) and the stoploss below.
+#   * selftrade evaluates the stop intrabar and fills gaps at the open;
+#     freqtrade's stoploss is checked by its own engine.
+#   * Signals (entries/exits) are identical by construction; see the parity test
+#     tests/test_freqtrade_export.py.
+# ---------------------------------------------------------------------------
+'''
+
+
+def export_strategy(
+    genome: dict[str, Any],
+    name: str | None = None,
+    timeframe: str = "1h",
+    out_dir: str = "user_data/strategies",
+) -> tuple[str, Path]:
+    g = validate_genome(genome)
+    key = genome_key(g)
+    family = g["family"]
+    class_name = name or f"Selftrade_{family}_{key}"
+    class_name = re.sub(r"[^0-9a-zA-Z_]", "_", class_name)
+    if not class_name[:1].isalpha():
+        class_name = "S_" + class_name
+
+    sl = abs(float(g["risk"]["stop_loss_pct"]))
+    tp = g["risk"]["take_profit_pct"]
+    minimal_roi_seconds = int(3600)  # one hour: arbitrary, declared in the header
+    roi_value = float(tp) if tp is not None else 10.0
+    can_short = bool(g["risk"]["trade_shorts"])
+
+    source = HEADER + f'''
+import json
+
+import numpy as np
+import pandas as pd
+
+try:  # pragma: no cover - requires freqtrade
+    from freqtrade.strategy import IStrategy
+    _HAS_FREQTRADE = True
+except Exception:  # allow importing this file without freqtrade installed
+    IStrategy = object
+    _HAS_FREQTRADE = False
+
+
+FAMILY = {family!r}
+PARAMS_JSON = {repr(json.dumps(g["params"], sort_keys=True))}
+RISK_JSON = {repr(json.dumps(g["risk"], sort_keys=True))}
+P = json.loads(PARAMS_JSON)
+RISK = json.loads(RISK_JSON)
+TIMEFRAME = {timeframe!r}
+CAN_SHORT = {can_short!r}
+STOPLOSS = {sl!r}
+''' + _INDICATORS + '''
+
+def compute_signals(df):
+    """Return the same boolean signal frame the selftrade package produces."""
+    df = df.copy()
+''' + _signal_body(family) + '''
+    out = pd.DataFrame(
+        {
+            "long_entry": pd.Series(long_entry, index=df.index),
+            "long_exit": pd.Series(long_exit, index=df.index),
+            "short_entry": pd.Series(short_entry, index=df.index),
+            "short_exit": pd.Series(short_exit, index=df.index),
+        },
+        index=df.index,
+    )
+    for col in out.columns:
+        out[col] = out[col].where(out[col].notna(), False).astype(bool)
+    return out
+
+
+class %s(IStrategy):  # noqa: D101
+    INTERFACE_VERSION = 3
+    timeframe = TIMEFRAME
+    can_short = CAN_SHORT
+    stoploss = -STOPLOSS
+    minimal_roi = {"0": %r}  # NOTE: differs from selftrade's fill-at-target
+
+    def populate_indicators(self, dataframe, metadata):
+        return dataframe
+
+    def populate_entry_trend(self, dataframe, metadata):
+        sig = compute_signals(dataframe)
+        dataframe.loc[sig["long_entry"], "enter_long"] = 1
+        if CAN_SHORT:
+            dataframe.loc[sig["short_entry"], "enter_short"] = 1
+        return dataframe
+
+    def populate_exit_trend(self, dataframe, metadata):
+        sig = compute_signals(dataframe)
+        dataframe.loc[sig["long_exit"], "exit_long"] = 1
+        if CAN_SHORT:
+            dataframe.loc[sig["short_exit"], "exit_short"] = 1
+        return dataframe
+''' % (class_name, roi_value)
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{class_name}.py"
+    path.write_text(source, encoding="utf-8")
+    return class_name, path
