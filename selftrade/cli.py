@@ -199,7 +199,11 @@ def cmd_backtest(args) -> int:
     }
     if args.holdout and len(hold):
         guard = Holdout(hold)
-        out["holdout"] = holdout_eval(guard.read(), genome, settings)
+        h = holdout_eval(guard.read(), genome, settings)
+        # keep the JSON interface stable: holdout_eval also carries the equity
+        # series and the trade frame (the Evolver needs them), which do not belong
+        # in a printed payload.
+        out["holdout"] = {"metrics": h["metrics"], "n_trades": h["n_trades"]}
     if args.json:
         _print_json(out)
     else:

@@ -179,6 +179,10 @@ def test_backtest_holdout_available(tmp_path, capsys):
     assert code in (0, 2)
     payload = json.loads(capsys.readouterr().out)
     assert "holdout" in payload
+    # the printed payload must stay machine-readable: metrics and counts only,
+    # never the equity series or the trade frame (those are for the Evolver)
+    assert sorted(payload["holdout"]) == ["metrics", "n_trades"]
+    assert isinstance(payload["holdout"]["metrics"], dict)
 
 
 def test_backtest_champion_missing_exits_nonzero(tmp_path, capsys):
