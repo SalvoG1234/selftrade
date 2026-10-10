@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import requests
 
 # Timeframe -> nominal bar spacing and number of bars per year.
 TIMEFRAME_MINUTES: dict[str, int] = {
@@ -326,6 +327,150 @@ def load_dataframe(settings: Any) -> pd.DataFrame:
 
         return mt5.load_bars(settings, raise_on_error=True)
     raise DataError(f"unknown data.source: {src!r}")
+
+
+# --------------------------------------------------------------------------
+# Public klines (real market data, no API key)
+# --------------------------------------------------------------------------
+
+# The public market-data mirror serves the same payload as api.binance.com but
+# is not geo-restricted.  Both are keyless and read-only.
+DEFAULT_FETCH_BASE_URL = "https://data-api.binance.vision"
+
+# Project timeframe -> exchange interval.  Identity here, but the mapping is
+# explicit so an unsupported timeframe fails loudly instead of silently.
+EXCHANGE_INTERVALS: dict[str, str] = {
+    "1m": "1m",
+    "3m": "3m",
+    "5m": "5m",
+    "15m": "15m",
+    "30m": "30m",
+    "1h": "1h",
+    "2h": "2h",
+    "4h": "4h",
+    "6h": "6h",
+    "12h": "12h",
+    "1d": "1d",
+    "1w": "1w",
+}
+
+MAX_KLINE_PAGE = 1000
+
+
+def normalize_symbol(symbol: str) -> str:
+    """``BTC/USDT`` -> ``BTCUSDT`` (the exchange wants no separator)."""
+    sym = str(symbol).strip().upper().replace("/", "").replace("-", "").replace("_", "")
+    if not sym or not sym.isalnum():
+        raise DataError(
+            f"invalid symbol {symbol!r}; use e.g. BTC/USDT or BTCUSDT (no spaces)."
+        )
+    return sym
+
+
+def _exchange_interval(timeframe: str) -> str:
+    tf = str(timeframe).strip()
+    if tf not in EXCHANGE_INTERVALS:
+        raise DataError(
+            f"timeframe {timeframe!r} cannot be fetched. Supported: "
+            f"{', '.join(EXCHANGE_INTERVALS)}"
+        )
+    return EXCHANGE_INTERVALS[tf]
+
+
+def _get_json(get: Any, base_url: str, params: dict[str, Any], timeout: float) -> Any:
+    url = f"{base_url.rstrip('/')}/api/v3/klines"
+    try:
+        resp = get(url, params=params, timeout=timeout)
+    except requests.RequestException as exc:
+        raise DataError(
+            f"network error talking to {base_url}: {exc}. Check the internet "
+            f"connection, or use a local CSV (data.source: csv)."
+        ) from exc
+    status = getattr(resp, "status_code", 200)
+    if status and int(status) != 200:
+        raise DataError(
+            f"{base_url} returned HTTP {status} for symbol={params.get('symbol')} "
+            f"interval={params.get('interval')}. Check the symbol/timeframe."
+        )
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        raise DataError(f"{base_url} returned a non-JSON body: {exc}") from exc
+    if isinstance(payload, dict):  # error object: {"code": .., "msg": ..}
+        raise DataError(
+            f"{base_url} error {payload.get('code')}: {payload.get('msg')} "
+            f"(symbol={params.get('symbol')}, interval={params.get('interval')}). "
+            f"Use a listed symbol, e.g. BTC/USDT."
+        )
+    return payload
+
+
+def fetch_klines(
+    symbol: str = "BTC/USDT",
+    timeframe: str = "1h",
+    rows: int = 1000,
+    *,
+    base_url: str = DEFAULT_FETCH_BASE_URL,
+    session: Any = None,
+    timeout: float = 20.0,
+    end_ms: int | None = None,
+) -> pd.DataFrame:
+    """Download **real** OHLCV candles from the public klines endpoint.
+
+    Keyless and read-only; pages backwards with ``endTime`` until ``rows`` bars
+    (or the start of the instrument's history) are collected, then trims to the
+    most recent ``rows``.  The result goes through :func:`ensure_ohlcv`, so it is
+    indistinguishable from any other source by the time the pipeline sees it.
+
+    ``session`` accepts anything with a ``.get(url, params=, timeout=)`` method
+    returning an object with ``.json()``/``.status_code`` - tests inject a stub,
+    so this function is exercised offline.
+    """
+    if rows <= 0:
+        raise DataError(f"rows must be positive, got {rows}")
+    sym = normalize_symbol(symbol)
+    interval = _exchange_interval(timeframe)
+    get = getattr(session, "get", None) or requests.get
+
+    collected: list[list[Any]] = []
+    end_time = end_ms
+    while len(collected) < rows:
+        want = int(min(MAX_KLINE_PAGE, rows - len(collected)))
+        params: dict[str, Any] = {"symbol": sym, "interval": interval, "limit": want}
+        if end_time is not None:
+            params["endTime"] = int(end_time)
+        batch = _get_json(get, base_url, params, timeout)
+        if not isinstance(batch, list) or not batch:
+            break
+        batch = [row for row in batch if isinstance(row, (list, tuple)) and len(row) >= 6]
+        if not batch:
+            break
+        collected = list(batch) + collected
+        if len(batch) < want:
+            break  # history exhausted
+        first_open = int(batch[0][0])
+        end_time = first_open - 1
+        if len(batch) >= rows:
+            break
+
+    if not collected:
+        raise DataError(
+            f"no candles returned for {sym} {interval}. Check the symbol, or use "
+            f"a local CSV (data.source: csv)."
+        )
+    recs = collected[-rows:]
+    idx = pd.DatetimeIndex(pd.to_datetime([int(r[0]) for r in recs], unit="ms", utc=True))
+    df = pd.DataFrame(
+        {
+            "open": [float(r[1]) for r in recs],
+            "high": [float(r[2]) for r in recs],
+            "low": [float(r[3]) for r in recs],
+            "close": [float(r[4]) for r in recs],
+            "volume": [float(r[5]) for r in recs],
+        },
+        index=idx,
+    )
+    return ensure_ohlcv(df, min_rows=0, timeframe=timeframe)
 
 
 def save_csv(df: pd.DataFrame, path: str | Path) -> Path:

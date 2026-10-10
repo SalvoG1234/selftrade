@@ -2,18 +2,20 @@ project: selftrade
 
 data:
   source: csv                # csv | freqtrade_json | synthetic | mt5
-  csv: data/sample_ohlcv.csv
+  csv: data/BTCUSDT_4h.csv   # real data/JSON: `data --fetch --rows 18000`
   datetime_col: timestamp
-  timeframe: 1h
+  timeframe: 4h
   symbol: BTC/USDT           # for FX/CFD (Trading.com): EURUSD
   min_rows: 800
   synthetic_rows: 12000
   max_rows: 0
+  fetch_base_url: https://data-api.binance.vision   # keyless public klines
+  fetch_timeout: 20.0
 
 backtest:
   initial_cash: 10000.0
-  fee_bps: 5.0               # WARNING: crypto default. For FX run `mt5 costs`
-  slippage_bps: 2.0
+  fee_bps: 10.0              # spot taker is ~10 bps; for FX run `mt5 costs`
+  slippage_bps: 5.0          # 15 bps per side = 30 bps round trip
   position_size: 0.95
   allow_short: false
 
@@ -27,8 +29,8 @@ evaluation:
   complexity_penalty: 0.01
 
 evolution:
-  generations: 5
-  population: 6
+  generations: 10
+  population: 10
   elite: 2
   seed: 7
   mode: explore              # params | explore
@@ -38,8 +40,8 @@ evolution:
 llm:
   enabled: true
   base_url: http://localhost:11434
-  model: qwen3-coder:30b     # or qwen2.5-coder:7b / deepseek-r1:14b (8-16 GB VRAM)
-  embed_model: embeddinggemma
+  model: qwen2.5-coder:1.5b  # CPU-friendly; use qwen3-coder:30b / deepseek-r1:14b on a GPU
+  embed_model: nomic-embed-text
   num_ctx: 8192
   num_predict: 512       # cap generation so slow/CPU Ollama stays bounded
   temperature: 0.2

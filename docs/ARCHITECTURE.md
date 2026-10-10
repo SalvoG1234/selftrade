@@ -8,7 +8,7 @@ remembers what happened — good *and* bad. It never trades real money by defaul
 | Module | Responsibility |
 | --- | --- |
 | `config.py` | Typed, validated settings. Unknown keys stop execution. CLI overrides. |
-| `data.py` | The OHLCV contract (`ensure_ohlcv`), synthetic generator, CSV / freqtrade / MT5 loaders. |
+| `data.py` | The OHLCV contract (`ensure_ohlcv`), real public-klines fetcher (`fetch_klines`, paged, keyless), synthetic generator, CSV / freqtrade / MT5 loaders. |
 | `indicators.py` | Causal EMA, RSI, ATR, Bollinger, Donchian, realized vol. |
 | `params.py` | Parameter spaces for the four families and the risk rules. |
 | `genome.py` | The genome as pure data: validate/clamp, sample, mutate, crossover, complexity. |
@@ -20,6 +20,7 @@ remembers what happened — good *and* bad. It never trades real money by defaul
 | `propose.py` | Next-move proposal: LLM when available, deterministic otherwise. |
 | `agent.py` | The `Evolver` loop and the markdown/JSON report. |
 | `freqtrade_export.py` | Export a self-contained freqtrade strategy. |
+| `invest.py` | Money simulation on real prices: equity vs buy & hold, measured cost drag, per-year table, inline-SVG charts, md/HTML/JSON reports. |
 | `paper.py` | Forward paper trading with a persistent cursor. |
 | `session.py` | Persistent start / pause / resume / stop control. |
 | `dashboard.py` | Loopback `http.server` dashboard + JSON API. |

@@ -60,7 +60,7 @@ def test_parser_has_all_commands():  # noqa: D103
     names = set(p._subparsers._group_actions[0].choices)
     assert {
         "doctor", "data", "backtest", "evolve", "report", "hall", "export",
-        "rea", "mcp", "mt5", "paper", "serve", "session",
+        "rea", "mcp", "mt5", "paper", "invest", "serve", "session",
     } <= names
 
 
@@ -108,6 +108,45 @@ def test_data_writes_csv(tmp_path, capsys):
     assert code == 0
     assert out_csv.exists()
     assert "300 rows" in capsys.readouterr().out
+
+
+def test_data_fetch_routes_to_public_klines(tmp_path, capsys, monkeypatch):
+    """`data --fetch` must hit the klines client, not the synthetic generator."""
+    import selftrade.data as data_mod
+
+    cfg = write_config(tmp_path)
+    seen = {}
+
+    def fake_fetch(symbol, timeframe, rows, **kwargs):
+        seen.update(symbol=symbol, timeframe=timeframe, rows=rows, **kwargs)
+        return make_synthetic(150, seed=3)
+
+    monkeypatch.setattr(data_mod, "fetch_klines", fake_fetch)
+    out_csv = tmp_path / "real.csv"
+    code = run(cfg, "data", "--fetch", "--rows", "150", "--out", str(out_csv))
+    assert code == 0
+    assert out_csv.exists()
+    assert seen["symbol"] == "BTC/USDT"
+    assert seen["rows"] == 150
+    assert seen["base_url"].startswith("https://")
+    assert isinstance(seen["timeout"], float)
+    assert "fetched 150 real candles" in capsys.readouterr().err
+
+
+def test_data_fetch_defaults_to_symbol_timeframe_filename(tmp_path, capsys, monkeypatch):
+    import selftrade.data as data_mod
+
+    cfg = write_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        data_mod,
+        "fetch_klines",
+        lambda symbol, timeframe, rows, **kw: make_synthetic(120, seed=4),
+    )
+    code = run(cfg, "data", "--fetch", "--rows", "120", "--set", "data.symbol=ETH/USDT")
+    assert code == 0
+    assert (tmp_path / "data" / "ETHUSDT_1h.csv").exists()
+    assert "ETHUSDT_1h.csv" in capsys.readouterr().out
 
 
 def test_hall_empty(tmp_path, capsys):
@@ -182,6 +221,47 @@ def test_paper_create_without_champion_exits_nonzero(tmp_path, capsys):
     code = run(cfg, "paper", "--create")
     assert code == 1
     assert "no champion" in capsys.readouterr().err
+
+
+def test_invest_writes_md_html_json(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    out = tmp_path / "inv" / "sim.md"
+    code = run(cfg, "invest", "--family", "trend_momentum", "--out", str(out))
+    assert code == 0
+    assert out.exists()
+    html = out.with_suffix(".html")
+    jsonf = out.with_suffix(".json")
+    assert html.exists() and jsonf.exists()
+    doc = html.read_text(encoding="utf-8")
+    assert "<svg" in doc and "Equity curve" in doc
+    payload = json.loads(jsonf.read_text(encoding="utf-8"))
+    assert payload["currency"] == "USDT"
+    assert set(payload["cost_sensitivity"][0]) >= {"cost_multiplier", "final_equity"}
+    printed = capsys.readouterr().out
+    assert "buy&hold" in printed and "verdict:" in printed
+
+
+def test_invest_json_is_machine_readable(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    code = run(cfg, "invest", "--family", "rsi_reversion", "--window", "full", "--json")
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["in_sample"] is True
+    assert payload["params"]["initial_cash"] == 10000.0
+
+
+def test_invest_champion_missing_exits_nonzero(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    code = run(cfg, "invest", "--champion", "--out", str(tmp_path / "x.md"))
+    assert code == 1
+    assert "no champion" in capsys.readouterr().err
+
+
+def test_invest_rejects_unknown_window(tmp_path):
+    cfg = write_config(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        run(cfg, "invest", "--window", "tomorrow")
+    assert exc.value.code != 0
 
 
 def test_mt5_doctor_disabled(tmp_path, capsys):

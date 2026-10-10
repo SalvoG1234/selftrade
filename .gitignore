@@ -13,6 +13,7 @@ __pycache__/
 # runtime state and outputs
 state/
 reports/
+reports_synthetic/
 data/*.csv
 data/*.json
 !data/.gitkeep

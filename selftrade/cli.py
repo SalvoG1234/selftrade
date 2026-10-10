@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +136,7 @@ def cmd_doctor(args) -> int:
 
 def cmd_data(args) -> int:
     settings = _load(args)
-    from .data import make_synthetic, save_csv
+    from .data import fetch_klines, make_synthetic, save_csv
 
     rows = args.rows or settings.data.synthetic_rows
     if args.fetch_mt5:
@@ -143,12 +144,33 @@ def cmd_data(args) -> int:
 
         df = mt5_mod.fetch_snapshot(settings)
     elif args.fetch:
-        print("--fetch (public klines) is not wired to a specific exchange; using synthetic", file=sys.stderr)
-        df = make_synthetic(rows, seed=settings.evolution.seed, timeframe=settings.data.timeframe)
+        print(
+            f"fetching real candles: {settings.data.symbol} "
+            f"{settings.data.timeframe} x{rows} from {settings.data.fetch_base_url}",
+            file=sys.stderr,
+        )
+        df = fetch_klines(
+            settings.data.symbol,
+            settings.data.timeframe,
+            rows,
+            base_url=settings.data.fetch_base_url,
+            timeout=settings.data.fetch_timeout,
+        )
+        print(
+            f"fetched {len(df)} real candles {df.index[0]} .. {df.index[-1]} "
+            f"(close {df['close'].iloc[0]:.2f} -> {df['close'].iloc[-1]:.2f})",
+            file=sys.stderr,
+        )
     else:
         df = make_synthetic(rows, seed=settings.evolution.seed, timeframe=settings.data.timeframe)
 
-    out = args.out or settings.data.csv
+    if args.out:
+        out = args.out
+    elif args.fetch:
+        sym = settings.data.symbol.replace("/", "").upper()
+        out = f"data/{sym}_{settings.data.timeframe}.csv"
+    else:
+        out = settings.data.csv
     p = save_csv(df, out)
     print(f"wrote {len(df)} rows to {p} ({df.index[0]} .. {df.index[-1]})")
     return 0
@@ -287,6 +309,71 @@ def cmd_export(args) -> int:
         genome, args.name, args.timeframe or settings.data.timeframe, args.out or "user_data/strategies"
     )
     print(f"exported {out} -> {path}")
+    return 0
+
+
+def cmd_invest(args) -> int:
+    """Simulate really investing a fixed amount in the chosen genome."""
+    settings = _load(args)
+    from . import invest as invest_mod
+
+    df = _load_df(settings)
+    got = _champion_or_family(settings, args)
+    if got is None:
+        return 1
+    genome, origin = got
+    cash = args.initial_cash or settings.backtest.initial_cash
+    try:
+        report = invest_mod.simulate_investment(
+            df,
+            genome,
+            settings,
+            window=args.window,
+            initial_cash=cash,
+            origin=origin,
+            data_path=settings.data.csv,
+        )
+    except invest_mod.InvestError as exc:
+        print(f"invest: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        _print_json(report)
+        return 0
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    md_path = args.out or f"reports/invest_{stamp}.md"
+    html_path = str(Path(md_path).with_suffix(".html"))
+    json_path = str(Path(md_path).with_suffix(".json"))
+    written = invest_mod.write_reports(
+        report, out_md=md_path, out_html=html_path, out_json=json_path
+    )
+
+    s, b, cd = report["strategy"], report["buy_hold"], report["cost_drag"]
+    cur = report["currency"]
+    print(f"investment simulation ({report['origin']}) {report['description']}")
+    print(
+        f"  data: {report['data']['symbol']} {report['data']['timeframe']} "
+        f"{report['data']['rows_window']} bars "
+        f"{report['data']['start'][:10]}..{report['data']['end'][:10]} "
+        f"window={report['window']}"
+    )
+    print(f"  cash {report['params']['initial_cash']:,.0f} {cur}")
+    print(
+        f"  strategy : {s['final_equity']:,.2f} {cur} "
+        f"({s['total_return'] * 100:+.1f}%, CAGR {s['cagr'] * 100:+.2f}%, DD {s['max_drawdown'] * 100:.1f}%)"
+    )
+    print(
+        f"  buy&hold : {b['final_equity']:,.2f} {cur} "
+        f"({b['total_return'] * 100:+.1f}%, CAGR {b['cagr'] * 100:+.2f}%, DD {b['max_drawdown'] * 100:.1f}%)"
+    )
+    print(
+        f"  trades {s['n_trades']}, win {s['win_rate'] * 100:.1f}%, "
+        f"PF {s['profit_factor']:.2f}, costs paid {cd['cost_paid']:,.2f} {cur}"
+    )
+    print(f"  verdict: {report['verdict']['text']}")
+    for kind, path in written.items():
+        print(f"  wrote {kind}: {path}")
     return 0
 
 
@@ -478,6 +565,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--live", action="store_true", help="press the trigger (config mt5.live must also be armed)")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_mt5)
+
+    sp = sub.add_parser("invest", help="what if we had really invested this cash")
+    sp.add_argument("--champion", action="store_true")
+    sp.add_argument("--family")
+    sp.add_argument("--window", choices=["holdout", "full", "recent"], default="holdout")
+    sp.add_argument("--initial-cash", type=float, dest="initial_cash")
+    sp.add_argument("--out", help="markdown path (.html/.json written next to it)")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_invest)
 
     sp = sub.add_parser("paper", help="forward paper trading")
     sp.add_argument("--create", action="store_true")

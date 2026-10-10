@@ -2,13 +2,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import requests
+
 from selftrade.data import (
     DataError,
     TIMEFRAME_BARS_PER_YEAR,
     ensure_ohlcv,
+    fetch_klines,
     load_csv,
     load_freqtrade_json,
     make_synthetic,
+    normalize_symbol,
     split_holdout,
 )
 
@@ -184,3 +188,170 @@ def test_split_holdout_zero():
 def test_bars_per_year_table():
     assert TIMEFRAME_BARS_PER_YEAR["1h"] == pytest.approx(8760)
     assert TIMEFRAME_BARS_PER_YEAR["1d"] == pytest.approx(365)
+
+
+# ------------------------------------------------------- real public klines
+
+STEP_MS = 3_600_000
+BASE_MS = 1_600_000_000_000
+
+
+def kline(open_ms, price, volume=1.0):
+    return [
+        open_ms,
+        price,
+        price + 1.0,
+        price - 1.0,
+        price + 0.5,
+        volume,
+        open_ms + STEP_MS - 1,
+        volume * price,
+        5,
+        volume,
+        volume * price,
+        "0",
+    ]
+
+
+def kline_page(start_ms, n, price0=100.0):
+    return [kline(start_ms + i * STEP_MS, price0 + i) for i in range(n)]
+
+
+class _Resp:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status_code = status
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+class _StubSession:
+    """Records every request and replays canned kline pages in order."""
+
+    def __init__(self, *pages):
+        self.pages = list(pages)
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append({"url": url, "params": dict(params or {})})
+        page = self.pages.pop(0) if self.pages else []
+        if isinstance(page, _Resp):
+            return page
+        if isinstance(page, Exception):
+            raise page
+        return _Resp(page)
+
+
+def test_normalize_symbol():
+    assert normalize_symbol("BTC/USDT") == "BTCUSDT"
+    assert normalize_symbol(" btc-usdt ") == "BTCUSDT"
+    assert normalize_symbol("EURUSD") == "EURUSD"
+    with pytest.raises(DataError):
+        normalize_symbol("BTC USDT")
+    with pytest.raises(DataError):
+        normalize_symbol("")
+
+
+def test_fetch_klines_contract_from_a_stub_server():
+    page = kline_page(BASE_MS, 300)
+    session = _StubSession(page)
+    df = fetch_klines("BTC/USDT", "4h", 300, session=session)
+
+    assert len(df) == 300
+    assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+    assert str(df.index.tz) == "UTC"
+    assert df.index.is_monotonic_increasing
+    assert (df.dtypes == "float64").all()
+    assert df["close"].iloc[0] == pytest.approx(100.5)
+    assert df["close"].iloc[-1] == pytest.approx(399.5)
+    assert df["volume"].sum() > 0
+
+    assert len(session.calls) == 1
+    assert session.calls[0]["url"].endswith("/api/v3/klines")
+    assert session.calls[0]["params"] == {
+        "symbol": "BTCUSDT",
+        "interval": "4h",
+        "limit": 300,
+    }
+
+
+def test_fetch_klines_paginates_backwards_and_trims():
+    bars = kline_page(BASE_MS, 3000)
+    session = _StubSession(bars[2000:3000], bars[1000:2000], bars[500:1000])
+    df = fetch_klines("BTCUSDT", "1h", 2500, session=session)
+
+    assert len(df) == 2500
+    assert len(session.calls) == 3
+    assert session.calls[0]["params"]["limit"] == 1000
+    assert "endTime" not in session.calls[0]["params"]
+    assert session.calls[1]["params"]["endTime"] == bars[2000][0] - 1
+    assert session.calls[2]["params"]["endTime"] == bars[1000][0] - 1
+    assert session.calls[2]["params"]["limit"] == 500
+
+    # The oldest bar of the oldest page first, the newest bar last.
+    assert df.index.is_monotonic_increasing
+    assert not df.index.has_duplicates
+    assert df["open"].iloc[0] == pytest.approx(bars[500][1])
+    assert df["open"].iloc[-1] == pytest.approx(bars[2999][1])
+
+
+def test_fetch_klines_stops_when_history_is_exhausted():
+    session = _StubSession(kline_page(BASE_MS, 10))
+    df = fetch_klines("BTCUSDT", "1h", 5000, session=session)
+    assert len(df) == 10
+    assert len(session.calls) == 1
+
+
+def test_fetch_klines_drops_malformed_rows():
+    page = kline_page(BASE_MS, 3) + [[1, 2], "junk"]
+    session = _StubSession(page)
+    df = fetch_klines("BTCUSDT", "1h", 3, session=session)
+    assert len(df) == 3
+
+
+def test_fetch_klines_empty_payload_raises():
+    with pytest.raises(DataError) as exc:
+        fetch_klines("BTCUSDT", "1h", 10, session=_StubSession([]))
+    assert "no candles" in str(exc.value)
+
+
+def test_fetch_klines_upstream_error_object_raises():
+    session = _StubSession({"code": -1121, "msg": "Invalid symbol."})
+    with pytest.raises(DataError) as exc:
+        fetch_klines("NOTACOIN", "1h", 10, session=session)
+    assert "Invalid symbol" in str(exc.value)
+
+
+def test_fetch_klines_http_error_raises():
+    session = _StubSession([])
+    session.get = lambda url, params=None, timeout=None: _Resp({}, status=400)
+    with pytest.raises(DataError) as exc:
+        fetch_klines("BTCUSDT", "1h", 10, session=session)
+    assert "HTTP 400" in str(exc.value)
+
+
+def test_fetch_klines_network_error_raises():
+    session = _StubSession(requests.ConnectionError("no route to host"))
+    with pytest.raises(DataError) as exc:
+        fetch_klines("BTCUSDT", "1h", 10, session=session)
+    assert "network error" in str(exc.value)
+
+
+def test_fetch_klines_non_json_body_raises():
+    session = _StubSession(_Resp(ValueError("not json")))
+    with pytest.raises(DataError) as exc:
+        fetch_klines("BTCUSDT", "1h", 10, session=session)
+    assert "non-JSON" in str(exc.value)
+
+
+def test_fetch_klines_rejects_bad_arguments():
+    with pytest.raises(DataError):
+        fetch_klines("BTCUSDT", "1h", 0, session=_StubSession([]))
+    with pytest.raises(DataError) as exc:
+        fetch_klines("BTCUSDT", "7m", 10, session=_StubSession([]))
+    assert "cannot be fetched" in str(exc.value)
+    with pytest.raises(DataError):
+        fetch_klines("BTC USDT", "1h", 10, session=_StubSession([]))

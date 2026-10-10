@@ -37,6 +37,8 @@ class DataConfig:
     min_rows: int = 800
     synthetic_rows: int = 12000
     max_rows: int = 0
+    fetch_base_url: str = "https://data-api.binance.vision"
+    fetch_timeout: float = 20.0
 
 
 @dataclass
