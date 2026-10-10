@@ -15,7 +15,7 @@ remembers what happened — good *and* bad. It never trades real money by defaul
 | `strategies/` | `base.py` + the four families. |
 | `backtest.py` | Bar-by-bar engine, fills, costs, intrabar risk, metrics. |
 | `evaluate.py` | Walk-forward folds, fitness, hard gates, the read-once holdout. |
-| `memory.py` | SQLite: runs, candidates, hall of fame, lessons, paper tables. |
+| `memory.py` | SQLite: runs, candidates, hall of fame, lessons, paper tables, risk events. |
 | `llm.py` | Optional Ollama client (`/api/chat`, `/api/embed`). |
 | `propose.py` | Next-move proposal: LLM when available, deterministic otherwise. |
 | `agent.py` | The `Evolver` loop and the markdown/JSON report. |
@@ -24,7 +24,8 @@ remembers what happened — good *and* bad. It never trades real money by defaul
 | `critic.py` | The deployment verdict: hard checks against the sealed limits plus recorded warnings. |
 | `autopsy.py` | Post-mortem of the losers: worst losses with causal entry context, clustered failure modes, overfit caveats, lesson for the memory. |
 | `invest.py` | Money simulation on real prices: equity vs buy & hold, measured cost drag, per-year table, inline-SVG charts, md/HTML/JSON reports. |
-| `paper.py` | Forward paper trading with a persistent cursor. |
+| `paper.py` | Forward paper trading with a persistent cursor (bar-level). |
+| `execution/` | The order-level rail: `base.py` (`BrokerAdapter`, orders, fills, positions, snapshots), `paper_broker.py` (next-open fills, two-sided costs, armed hard stops, ledger reconciliation), `risk_gate.py` (the deterministic pre-trade checks over the sealed limits), `kill_switch.py` (file-backed, fail-safe, persistent). No network imports, `mode = "paper".` |
 | `session.py` | Persistent start / pause / resume / stop control. |
 | `dashboard.py` | Loopback `http.server` dashboard + JSON API. |
 | `mt5.py` | MetaTrader 5 / Trading.com bridge, injection-testable. |

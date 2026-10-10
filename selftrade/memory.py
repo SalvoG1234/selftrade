@@ -109,11 +109,21 @@ CREATE TABLE IF NOT EXISTS paper_equity (
     equity REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS risk_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER,
+    kind TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    detail TEXT,
+    created_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_candidates_run ON candidates(run_id);
 CREATE INDEX IF NOT EXISTS idx_hall_fitness ON hall_of_fame(fitness DESC);
 CREATE INDEX IF NOT EXISTS idx_lessons_run ON lessons(run_id);
 CREATE INDEX IF NOT EXISTS idx_ptrades_session ON paper_trades(session_id);
 CREATE INDEX IF NOT EXISTS idx_pequity_session ON paper_equity(session_id);
+CREATE INDEX IF NOT EXISTS idx_risk_events_created ON risk_events(created_at DESC);
 """
 
 
@@ -338,6 +348,45 @@ class Memory:
             ).fetchall()
         return [r for r in (_lesson_row(row) for row in rows) if r["embedding"]]
 
+    # -------------------------------------------------- risk events
+    def add_risk_event(
+        self,
+        run_id: int | None,
+        kind: str,
+        reason: str,
+        detail: Any = None,
+    ) -> int:
+        """Record a risk decision: a blocked order, a kill switch, a limit breach."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO risk_events(run_id, kind, reason, detail, created_at)
+                   VALUES (?,?,?,?,?)""",
+                (run_id, str(kind), str(reason), _json_or_none(detail), time.time()),
+            )
+            return int(cur.lastrowid)
+
+    def risk_events(self, limit: int = 100, kind: str | None = None) -> list[dict[str, Any]]:
+        """Most recent risk events first."""
+        q = "SELECT * FROM risk_events"
+        args: tuple[Any, ...] = ()
+        if kind:
+            q += " WHERE kind=?"
+            args = (kind,)
+        q += " ORDER BY id DESC LIMIT ?"
+        with self._conn() as conn:
+            rows = conn.execute(q, (*args, int(limit))).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "run_id": r["run_id"],
+                "kind": r["kind"],
+                "reason": r["reason"],
+                "detail": _loads(r["detail"], None),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
     # -------------------------------------------------- paper sessions
     def create_paper_session(
         self,
@@ -504,6 +553,7 @@ class Memory:
                 "lessons": count("lessons"),
                 "paper_sessions": count("paper_sessions"),
                 "paper_trades": count("paper_trades"),
+                "risk_events": count("risk_events"),
             }
             row = conn.execute(
                 "SELECT MAX(fitness) AS best FROM hall_of_fame"

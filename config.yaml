@@ -80,6 +80,16 @@ mt5:                         # Trading.com
   max_spread_points: 25
   allowed_symbols: []
 
+risk_gate:                   # pre-trade checks; the sealed limits are NOT here
+  enabled: true
+  risk_pct: 0.005            # share of equity a single trade may risk
+  max_positions: 1
+  max_leverage: 1.0          # gross exposure / equity
+  min_seconds_between_orders: 0.0
+  min_notional: 1.0          # stand-in for a liquidity floor
+  require_stop: true
+  allowed_symbols: []        # empty = every symbol the broker serves
+
 paper:
   window: holdout            # holdout | recent | full
   window_bars: 2000

@@ -61,7 +61,7 @@ def test_parser_has_all_commands():  # noqa: D103
     assert {
         "doctor", "data", "backtest", "evolve", "report", "hall", "export",
         "rea", "mcp", "mt5", "paper", "invest", "autopsy", "critic", "risk",
-        "serve", "session",
+        "serve", "session", "broker", "switch",
     } <= names
 
 
@@ -377,6 +377,49 @@ def test_mcp_writes_config(tmp_path, capsys):
     assert code == 0
     data = json.loads(out.read_text(encoding="utf-8"))
     assert "rea" in data["mcpServers"]
+
+
+def test_broker_demo_blocks_over_limit_and_fills_the_compliant_order(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    code = run(cfg, "broker", "--bars", "300", "--json")
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["broker"]["mode"] == "paper"
+    assert payload["broker"]["network"] == "none"
+    assert payload["reconcile_ok"] is True
+    assert payload["sealed_limits"]["MODEL_CAN_OVERRIDE"] is False
+    steps = {s["step"]: s for s in payload["story"]}
+    assert steps["oversized_order"]["status"] == "rejected"
+    assert "5.0% per-position cap" in steps["oversized_order"]["reason"]
+    assert steps["retry_same_client_id"]["same_order"] is True
+    assert steps["compliant_order"]["status"] == "new"
+    assert steps["fill"]["status"] == "filled"
+    assert steps["fill"]["avg_price"] > 0
+    assert payload["risk_events"] >= 1
+    assert payload["account"]["equity"] > 0
+
+
+def test_broker_demo_prints_a_readable_story(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "broker", "--bars", "200") == 0
+    out = capsys.readouterr().out
+    assert "paper broker demo" in out
+    assert "ledger reconciliation: OK" in out
+    assert "not available here" not in out
+
+
+def test_switch_command_arms_stops_and_resets(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "switch", "show") == 0
+    assert json.loads(capsys.readouterr().out)["blocked"] is False
+    assert run(cfg, "switch", "arm", "--reason", "daily loss breached") == 0
+    armed = json.loads(capsys.readouterr().out)
+    assert armed["blocked"] is True and armed["reason"] == "daily loss breached"
+    assert run(cfg, "switch", "show") == 1  # blocked is a non-zero status
+    assert "no new orders" in capsys.readouterr().err
+    assert run(cfg, "switch", "reset") == 0
+    capsys.readouterr()
+    assert run(cfg, "switch", "show") == 0
 
 
 def test_unknown_set_key_exits_config_error(tmp_path, capsys):

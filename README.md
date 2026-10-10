@@ -72,8 +72,16 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
    memory as a lesson; a **critic** refuses to deploy anything that breaks the
    **sealed risk limits** (`frozen` dataclass, SHA-256 pinned, no config key, no
    genome and no env var can move them) — see `docs/AUTOPSY-AND-CRITIC.md`.
-9. **Dashboard** — loopback HTML + JSON API with start/pause/resume/stop.
-10. **MT5 (optional)** — data, real spread→bps cost conversion, and orders behind
+9. **Order-level execution** — an abstract `BrokerAdapter` with a **simulated
+   broker** that fills at the next open with two-sided costs, arms hard stops
+   (gap included) and reconciles its fills against its own ledger; a
+   deterministic **pre-trade gate** refuses an order before it exists on the
+   sealed limits (5% per position, 2% daily halt, 15% drawdown) plus
+   configurable exposure, leverage and order frequency; refusals are recorded in
+   the `risk_events` table and an account-level breach **engages the kill
+   switch** — see `docs/EXECUTION-AND-RISK-GATE.md`.
+10. **Dashboard** — loopback HTML + JSON API with start/pause/resume/stop.
+11. **MT5 (optional)** — data, real spread→bps cost conversion, and orders behind
     a two-key gate with a dry run by default.
 
 ## Commands
@@ -94,6 +102,8 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 | `autopsy [--champion \| --family F] [--window W] [--worst N] [--out F] [--json]` | post-mortem of the losers: worst losses with entry context, clustered failure modes, and the lesson stored in the memory |
 | `critic [--champion \| --family F] [--window W] [--json]` | judge deployment against the sealed risk limits; exit 1 = refused, and `paper --create` refuses too |
 | `risk show\|verify\|seal` | the read-only risk layer and its SHA-256 seal |
+| `broker [--bars N] [--entry auto\|first] [--cash C] [--symbol S] [--json]` | drives the simulated broker through the gate on local data: a blocked oversized order, a compliant fill at the next open, the hard stop exiting, and the ledger reconciliation |
+| `switch show\|arm\|reset [--reason T]` | the kill switch: blocks every new order, persists across restarts, and fails closed if its state file is corrupt |
 | `paper [--create] [--run] [--all] [--reset] [--status] [--session ID] [--champion] [--json]` | forward paper trading |
 | `serve [--host H] [--port P]` | local dashboard |
 | `session status\|start\|pause\|resume\|stop [--generations N]` | control the tracked loop |
@@ -109,8 +119,9 @@ config.yaml              all settings (typed + validated)
 selftrade/               the package (see docs/ARCHITECTURE.md for the module map)
 tests/                   one module per source module; stubs for Ollama/REA/MT5
 docs/                    WINDOWS-SETUP, ARCHITECTURE, PAPER-TRADING, DASHBOARD,
-                         INVESTMENT-SIM, AUTOPSY-AND-CRITIC, EXTENDING,
-                         REA-INTEGRATION, RUFLO-SWARM, TRADING-COM-MT5
+                         INVESTMENT-SIM, AUTOPSY-AND-CRITIC, EXECUTION-AND-RISK-GATE,
+                         LOOP-AI-PLAN, EXTENDING, REA-INTEGRATION, RUFLO-SWARM,
+                         TRADING-COM-MT5
 data/ state/ reports/    git-ignored runtime data
 user_data/strategies/    exported freqtrade strategies
 setup.ps1 run.ps1 paper.ps1 control.ps1 dashboard.ps1 mt5.ps1
@@ -124,7 +135,14 @@ model. Every value is overridable from the CLI:
 
 ```powershell
 .\run.ps1 evolve --generations 3 --set evaluation.metric=sortino --set backtest.fee_bps=1.2
+.\run.ps1 broker --set risk_gate.max_positions=3 --set risk_gate.min_seconds_between_orders=60
 ```
+
+The `risk_gate:` section holds the pre-trade thresholds the user sets (risk per
+trade, positions, leverage, order spacing, liquidity floor, stop required). The
+three portfolio limits (5% per position, 2% daily halt, 15% drawdown) are **not**
+there: they are sealed in `risk_rules.py` and reachable by no config key, no
+`--set`, no genome and no environment variable.
 
 ## Safety and secrets
 
@@ -137,6 +155,10 @@ model. Every value is overridable from the CLI:
   armed. The dry run never calls `order_send`.
 - The dashboard binds loopback only and sends no telemetry.
 - `paper` is a bar simulation: no orders, no connections, no streaming.
+- `selftrade/execution/` never imports `requests` or `socket` (a test parses the
+  package to enforce it) and `mode` is `paper`; the live rail is a separate,
+  two-key-gated module. The kill switch blocks new orders but does **not** close
+  open positions - that is a documented operator procedure.
 - REA analyses only targets that declare `authorized: true`.
 
 ## Verification status
@@ -145,7 +167,7 @@ model. Every value is overridable from the CLI:
 
 | Check | Result |
 | --- | --- |
-| `python -m pytest` | **330 passed** (one test module per source module) |
+| `python -m pytest` | **377 passed** (one test module per source module) |
 | `data --fetch --rows 18000` | 18 000 **real** BTC/USDT 4h candles from the public mirror, 2018-07-23 → 2026-10-10, close 7 733.74 → 82 819.29, written to `data/BTCUSDT_4h.csv` (50 s, 18 paged requests) |
 | `evolve --generations 12 --no-llm` on that data | 120 candidates, 12 report generations; fold-mean Sharpe 0.886 for the champion, **holdout read #1 Sharpe −0.55 → the holdout rejected it** |
 | `invest --champion --window holdout` | 10 000 → 8 456 USDT (−15.4%, CAGR −9.70%, DD 28.4%) vs buy & hold 8 608 USDT (−13.9%, DD 53.4%); 90 trades, 20% win rate, 2 472 USDT of costs; zero-cost counterfactual +9.3% |
@@ -155,6 +177,8 @@ model. Every value is overridable from the CLI:
 | `critic --champion` on the real data | **Refused** (exit 1): *"28.4% drawdown breaks the sealed 15.0% limit; the worst day lost 4.03%, past the sealed 2.0% daily halt. I will not deploy it."* |
 | `autopsy --champion` on the real data | *"Loaded 90 trades - 72 losers (80%); the worst 5 took 1,162.35 out of the account. Dominant failure mode: entry in above-median volatility (24 of 72 losers, 33%)."* + the worst-5 table with RSI/200-day/ATR context |
 | `paper --create --champion` | refused by the critic (exit 1) with the reason on stderr; the refusal is recorded as a lesson |
+| `broker --bars 600` on the real data | 50% order **rejected** on the sealed 5% cap (and the retry with the same `client_id` returned the same refusal); the 4.5% order filled at the next open (62 677.13, costs included) and the 2% hard stop exited it at bar 24 for −9.68; `reconcile: OK`; 1 risk event written |
+| `switch arm` + `broker` | both orders refused ("kill switch is engaged"), 0 positions, 0 fills, `reconcile: OK`; `switch show` exits 1 while engaged |
 | `evolve` report | now contains `## Critic` (verdict + checks + warnings) and `## Autopsy` (worst losses, failure modes, caveats) |
 | `doctor` | python/deps, data (12 000 rows), Ollama (UP), REA (disabled), MT5 (disabled), memory — no fatal errors |
 | `data --rows 12000` | wrote 12 000 bars, 2019-01-01 → 2020-05-14 (UTC) |
@@ -190,7 +214,13 @@ model. Every value is overridable from the CLI:
 **Known limits.**
 
 - The backtester does **not** model overnight swap/financing or broker contract
-  specifications; weekend gaps must be present in the data for gap fills.
+  specifications; weekend gaps must be present in the data for gap fills. The
+  same is true of the simulated broker: no partial fills, no order book, no
+  margin, and leverage is only *checked*, never financed.
+- The order-level rail has **no live adapter yet** (Binance Spot Testnet is the
+  chosen target): today `selftrade/execution/` is implemented by the simulated
+  broker only, so no real order has ever been sent and no live API response has
+  been handled.
 - Synthetic numbers are not market results.
 - MT5 bar times are treated as UTC epochs; a broker server offset is not
   corrected.

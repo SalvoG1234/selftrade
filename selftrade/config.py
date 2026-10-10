@@ -122,6 +122,32 @@ class MT5Config:
 
 
 @dataclass
+class RiskGateConfig:
+    """The pre-trade gate's *own* thresholds.
+
+    The portfolio-wide limits (5% per position, 2% daily halt, 15% drawdown) are
+    **not** here on purpose: they live in the sealed, read-only
+    :mod:`selftrade.risk_rules` layer and no config key can reach them.
+    """
+
+    enabled: bool = True
+    risk_pct: float = 0.005
+    """Share of equity a single trade may risk if its stop is hit."""
+
+    max_positions: int = 1
+    max_leverage: float = 1.0
+    """Gross exposure as a multiple of equity."""
+
+    min_seconds_between_orders: float = 0.0
+    min_notional: float = 1.0
+    """Minimum order notional: a stand-in for a liquidity floor."""
+
+    require_stop: bool = True
+    allowed_symbols: list[str] = field(default_factory=list)
+    """Empty means every symbol this broker serves."""
+
+
+@dataclass
 class PaperConfig:
     window: str = "holdout"  # holdout | recent | full
     window_bars: int = 2000
@@ -159,6 +185,7 @@ class Settings:
     llm: LLMConfig = field(default_factory=LLMConfig)
     rea: ReaConfig = field(default_factory=ReaConfig)
     mt5: MT5Config = field(default_factory=MT5Config)
+    risk_gate: RiskGateConfig = field(default_factory=RiskGateConfig)
     paper: PaperConfig = field(default_factory=PaperConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
@@ -345,7 +372,17 @@ def _validate_ranges(settings: Settings) -> None:
         raise ConfigError("dashboard.host must be loopback (127.0.0.1 / localhost / ::1)")
     if settings.paper.step_bars < 1:
         raise ConfigError("paper.step_bars must be >= 1")
-
+    rg = settings.risk_gate
+    if not 0.0 < rg.risk_pct <= 1.0:
+        raise ConfigError("risk_gate.risk_pct must be in (0, 1]")
+    if rg.max_positions < 0:
+        raise ConfigError("risk_gate.max_positions must be >= 0")
+    if rg.max_leverage <= 0:
+        raise ConfigError("risk_gate.max_leverage must be > 0")
+    if rg.min_seconds_between_orders < 0:
+        raise ConfigError("risk_gate.min_seconds_between_orders must be >= 0")
+    if rg.min_notional < 0:
+        raise ConfigError("risk_gate.min_notional must be >= 0")
 
 def apply_override(settings: Settings, override: str) -> None:
     """Apply a single ``section.key=value`` (or ``top=value``) override in place."""

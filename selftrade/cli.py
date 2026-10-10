@@ -520,6 +520,205 @@ def cmd_risk(args) -> int:
     return 1
 
 
+def cmd_broker(args) -> int:
+    """Drive the simulated broker through the risk gate: orders, fills, stops, ledger.
+
+    This is the acceptance walk from the brief in one command: an order that breaks a
+    sealed limit is refused and recorded, a compliant order fills at the next open,
+    the hard stop exits the position, and the fill ledger reconciles with the
+    broker's own books.  No network, no credentials, no real money.
+    """
+    settings = _load(args)
+    from . import risk_rules
+    from .execution import (
+        KillSwitch,
+        OrderRequest,
+        PaperBroker,
+        RiskGate,
+        Side,
+        kill_switch_path,
+    )
+
+    df = _load_df(settings).tail(int(args.bars))
+    COST_ALL = (settings.backtest.fee_bps + settings.backtest.slippage_bps) / 10_000.0
+    mem = Memory(settings.memory.db)
+    switch = KillSwitch(kill_switch_path(settings))
+    gate = RiskGate.from_config(settings.risk_gate) if settings.risk_gate.enabled else None
+    broker = PaperBroker(
+        df,
+        symbol=args.symbol or settings.data.symbol,
+        cash=float(args.cash),
+        fee_bps=settings.backtest.fee_bps,
+        slippage_bps=settings.backtest.slippage_bps,
+        gate=gate,
+        kill_switch=switch,
+        memory=mem,
+    )
+    symbol = broker.symbol
+    story: list[dict[str, Any]] = []
+    events_before = len(mem.risk_events(limit=10_000))
+
+    def record(step: str, **kw: Any) -> None:
+        story.append({"step": step, **kw})
+
+    # Where to enter.  `auto` (the default) walks the window to the first bar whose
+    # next 60 bars actually test the 2% stop, so the demonstration exercises the
+    # mechanism on real prices instead of hoping; the choice is printed, never hidden.
+    stop_pct = -0.02
+    entry_bar = 0
+    if args.entry == "auto" and len(df) > 80:
+        paid = df["open"].shift(-1) * (1.0 + COST_ALL)
+        stop_level = paid * (1.0 + stop_pct)
+        lows = df["low"].shift(-1)
+        for i in range(0, len(df) - 61):
+            if float(lows.iloc[i : i + 60].min()) <= float(stop_level.iloc[i]):
+                entry_bar = i
+                break
+        broker.advance(entry_bar)
+    price = float(df["close"].iloc[broker.index])
+    record("entry_point", bar=entry_bar, how=args.entry, price=price)
+
+    # 1. an order far past the sealed per-position cap must be refused
+    too_big = OrderRequest(
+        client_id="demo-oversized",
+        symbol=symbol,
+        side=Side.BUY,
+        qty=(0.5 * broker.cash) / price,
+        stop_loss_pct=stop_pct,
+    )
+    blocked = broker.submit_order(too_big)
+    record(
+        "oversized_order",
+        status=blocked.status.value,
+        reason=blocked.reject_reason,
+        limit=risk_rules.LIMITS.MAX_POSITION_PCT,
+    )
+    # the same client_id retried returns the same refusal instead of doubling down
+    retry = broker.submit_order(too_big)
+    record("retry_same_client_id", same_order=retry.id == blocked.id, status=retry.status.value)
+
+    # 2. a compliant order: 4.5% of equity, with a 2% hard stop
+    qty = (0.045 * broker.cash) / price
+    good = broker.submit_order(
+        OrderRequest(
+            client_id="demo-entry",
+            symbol=symbol,
+            side=Side.BUY,
+            qty=qty,
+            stop_loss_pct=stop_pct,
+            note="demo entry",
+        )
+    )
+    record("compliant_order", status=good.status.value, qty=qty)
+    broker.advance(1)  # fills at the next open
+    filled = broker.get_order_status(good.id)
+    record(
+        "fill",
+        status=filled.status.value if filled else "?",
+        avg_price=filled.avg_price if filled else None,
+        bar=broker.index,
+    )
+
+    # 3. let the market walk into the hard stop
+    stop_fill = None
+    while broker.index < len(df) - 1 and broker.get_positions():
+        before = len(broker.get_trade_history())
+        broker.advance(1)
+        for f in broker.get_trade_history()[before:]:
+            if f["reason"] == "stop":
+                stop_fill = f
+        if stop_fill:
+            break
+    record(
+        "hard_stop",
+        triggered=stop_fill is not None,
+        price=stop_fill["price"] if stop_fill else None,
+        bar=broker.index,
+        bars_available=len(df),
+    )
+
+    account = broker.get_account_balance()
+    mismatches = broker.reconcile()
+    events = mem.risk_events(limit=50)
+    logged_now = len(mem.risk_events(limit=10_000)) - events_before
+    payload = {
+        "broker": broker.describe(),
+        "sealed_limits": risk_rules.LIMITS.as_dict(),
+        "story": story,
+        "account": account.as_dict(),
+        "equity_points": len(broker.equity_series()),
+        "reconcile": [m.as_dict() for m in mismatches],
+        "reconcile_ok": not mismatches,
+        "risk_events": len(events),
+        "risk_events_logged_now": logged_now,
+        "kill_switch": switch.describe(),
+        "trades": broker.get_trade_history(limit=10),
+    }
+    if args.json:
+        _print_json(payload)
+        return 0 if not mismatches else 1
+
+    print(f"paper broker demo on {symbol}, bars={len(df)}")
+    print(f"cash {float(args.cash):,.2f} | fee {settings.backtest.fee_bps}bps "
+          f"+ slippage {settings.backtest.slippage_bps}bps per side | mode {broker.mode}")
+    print(
+        f"gate: {'armed' if gate else 'DISABLED by risk_gate.enabled'} "
+        f"(max_positions={settings.risk_gate.max_positions}, "
+        f"leverage<={settings.risk_gate.max_leverage}, "
+        f"risk/trade<={settings.risk_gate.risk_pct * 100:.3f}%) | sealed limits "
+        f"still apply: {risk_rules.LIMITS.MAX_POSITION_PCT:.1f}% / "
+        f"{risk_rules.LIMITS.MAX_DRAWDOWN_PCT:.1f}% / "
+        f"{risk_rules.LIMITS.MAX_DAILY_LOSS_PCT:.1f}%"
+    )
+    for row in story:
+        label = row.pop("step", "")
+        bits = "  ".join(f"{k}={v}" for k, v in row.items())
+        print(f"  {label:<18} {bits}")
+        row["step"] = label
+    print(
+        f"account: equity {account.equity:,.2f} cash {account.cash:,.2f} "
+        f"realized {account.realized_pnl:,.2f} fees {account.fees_paid:,.2f} "
+        f"positions {account.open_positions} drawdown {account.drawdown * 100:.2f}%"
+    )
+    print(f"ledger reconciliation: {'OK' if not mismatches else 'MISMATCH'}")
+    for m in mismatches:
+        print(f"  ! {m.what}: internal={m.internal} ledger={m.ledger} ({m.detail})")
+    print(f"risk events: {logged_now} logged by this demo, {len(events)} in the database")
+    for e in events[:2]:
+        print(f"  [{e['kind']}] {e['reason'][:110]}")
+    print(f"kill switch: {'ENGAGED' if switch.is_blocked() else 'clear'}")
+    return 0 if not mismatches else 1
+
+
+def cmd_switch(args) -> int:
+    """Show, arm or reset the kill switch (the one control that stops new orders)."""
+    settings = _load(args)
+    from .execution import KillSwitch, kill_switch_path
+
+    switch = KillSwitch(kill_switch_path(settings))
+    action = args.action or "show"
+    if action == "show":
+        info = switch.describe()
+        _print_json(info)
+        print(
+            "blocked: no new orders will be accepted"
+            if info["blocked"]
+            else "clear: new orders are allowed",
+            file=sys.stderr,
+        )
+        return 0 if not info["blocked"] else 1
+    if action == "arm":
+        state = switch.trigger(args.reason or "armed by the operator", by="operator")
+        _print_json({k: state[k] for k in ("blocked", "reason", "triggered_by", "triggered_at")})
+        return 0
+    if action == "reset":
+        state = switch.reset(args.reason or "", by="operator")
+        _print_json({k: state[k] for k in ("blocked", "reason", "triggered_by")})
+        return 0
+    print(f"unknown switch action: {action}", file=sys.stderr)
+    return 1
+
+
 def cmd_paper(args) -> int:
     settings = _load(args)
     from . import paper as paper_mod
@@ -739,6 +938,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("risk", help="sealed, read-only risk limits")
     sp.add_argument("action", nargs="?", choices=["show", "verify", "seal"], default="show")
     sp.set_defaults(func=cmd_risk)
+
+    sp = sub.add_parser("broker", help="simulated broker: orders, fills, stops, ledger")
+    sp.add_argument("--symbol")
+    sp.add_argument("--bars", type=int, default=400)
+    sp.add_argument("--entry", choices=["auto", "first"], default="auto")
+    sp.add_argument("--cash", type=float, default=10_000.0)
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_broker)
+
+    sp = sub.add_parser("switch", help="kill switch: stop new orders right now")
+    sp.add_argument("action", nargs="?", choices=["show", "arm", "reset"], default="show")
+    sp.add_argument("--reason")
+    sp.set_defaults(func=cmd_switch)
 
     sp = sub.add_parser("paper", help="forward paper trading")
     sp.add_argument("--create", action="store_true")

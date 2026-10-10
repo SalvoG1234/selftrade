@@ -105,6 +105,48 @@ def test_dashboard_must_be_loopback(tmp_path):
         load_settings(p)
 
 
+def test_risk_gate_defaults_and_overrides():
+    s = load_settings(None)
+    assert s.risk_gate.enabled is True
+    assert s.risk_gate.max_positions == 1
+    assert s.risk_gate.require_stop is True
+    assert s.risk_gate.allowed_symbols == []
+    apply_override(s, "risk_gate.max_positions=3")
+    apply_override(s, "risk_gate.min_seconds_between_orders=30")
+    apply_override(s, "risk_gate.allowed_symbols=[\"BTC/USDT\"]")
+    assert s.risk_gate.max_positions == 3
+    assert s.risk_gate.min_seconds_between_orders == 30.0
+    assert s.risk_gate.allowed_symbols == ["BTC/USDT"]
+
+
+def test_risk_gate_does_not_carry_the_sealed_limits():
+    """The sealed layer must stay unreachable from config.yaml."""
+    from selftrade.risk_rules import LIMITS
+
+    s = load_settings(None)
+    keys = set(as_dict(s)["risk_gate"])
+    assert not keys & set(LIMITS.as_dict())
+    with pytest.raises(ConfigError):
+        apply_override(s, "risk_gate.MAX_DRAWDOWN_PCT=99")
+
+
+def test_risk_gate_range_validation(tmp_path):
+    for bad in (
+        "risk_gate:\n  risk_pct: 2.0\n",
+        "risk_gate:\n  max_leverage: 0\n",
+        "risk_gate:\n  max_positions: -1\n",
+        "risk_gate:\n  min_seconds_between_orders: -5\n",
+    ):
+        with pytest.raises(ConfigError):
+            load_settings(write_cfg(tmp_path, bad))
+
+
+def test_reference_config_has_the_risk_gate_section():
+    s = load_settings("config.yaml")
+    assert s.risk_gate.max_positions >= 1
+    assert 0 < s.risk_gate.risk_pct <= 1
+
+
 def test_as_dict_shape():
     s = load_settings(None)
     d = as_dict(s)
