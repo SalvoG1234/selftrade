@@ -277,6 +277,27 @@ def test_sizing_by_risk(tmp_path):
     assert any("risk_pct" in n for n in notes)
 
 
+def test_sizing_is_clamped_by_the_sealed_position_cap(tmp_path):
+    from selftrade.risk_rules import LIMITS
+
+    # 20% of equity per position is above the sealed 5% cap: the live rail must
+    # refuse to size that big, and say so.
+    s = settings_for(tmp_path, live=True, risk_pct=0.20, max_lots=100.0)
+    term = mt5mod.Terminal(FakeMT5(tick_value=1.0, tick_size=0.00001, point=0.00001), s)
+    lots, notes = mt5mod.compute_lots(s, term, "EURUSD", sl_points=500, balance=10000.0)
+    capped = LIMITS.MAX_POSITION_PCT / 100.0 * 10000.0 / 500.0  # 5% of 10000 / 500
+    assert lots == pytest.approx(capped)
+    assert any("clamped" in n and "sealed" in n for n in notes)
+    assert any("risk_pct=0.05" in n for n in notes)
+
+    # and the configured 1% stays untouched, so nothing below the cap changes
+    s2 = settings_for(tmp_path, live=True, risk_pct=0.01, max_lots=10.0)
+    term2 = mt5mod.Terminal(FakeMT5(tick_value=1.0, tick_size=0.00001, point=0.00001), s2)
+    lots2, notes2 = mt5mod.compute_lots(s2, term2, "EURUSD", sl_points=500, balance=10000.0)
+    assert lots2 == pytest.approx(0.2)
+    assert not any("clamped" in n for n in notes2)
+
+
 def test_sizing_fallback_fixed_lots(tmp_path):
     s = settings_for(tmp_path, live=True, fixed_lots=0.03)
     term = mt5mod.Terminal(FakeMT5(tick_value=0.0, tick_size=0.0), s)
