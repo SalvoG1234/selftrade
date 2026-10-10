@@ -22,6 +22,8 @@ from typing import Any, Callable
 import numpy as np
 
 from .config import Settings, as_dict
+from . import autopsy as autopsy_mod
+from . import critic as critic_mod
 from .data import load_dataframe, split_holdout
 from .evaluate import (
     Holdout,
@@ -73,6 +75,8 @@ class EvolutionResult:
     report_md: str | None = None
     report_json: str | None = None
     stopped: bool = False
+    autopsy: dict[str, Any] | None = None
+    critic: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -210,6 +214,8 @@ class Evolver:
         sample = champion or (max(all_candidates, key=lambda c: c.fitness) if all_candidates else None)
 
         holdout_report: dict[str, Any] | None = None
+        autopsy_report: dict[str, Any] | None = None
+        critic_report: dict[str, Any] | None = None
         warning: str | None = None
         if sample is not None:
             hold_df_read = guard.read()  # the single read of this run
@@ -232,6 +238,47 @@ class Evolver:
                 "genome": sample.genome,
                 "was_champion": champion is not None and sample is champion,
             }
+            # ---- autopsy: read the losers, cluster the reasons -------------
+            try:
+                autopsy_report = autopsy_mod.autopsy(
+                    hold["trades"],
+                    hold_df_read,
+                    sample.genome,
+                    worst_n=5,
+                    min_trades=int(s.evaluation.min_trades),
+                    window_label="holdout",
+                    origin=sample.origin,
+                )
+                autopsy_lesson = autopsy_mod.lesson_text(autopsy_report)
+                embedding = None
+                if self.llm is not None and llm_available:
+                    embedding = self.llm.embed(autopsy_lesson)
+                self.memory.add_lesson(
+                    run_id,
+                    autopsy_lesson,
+                    tags=["autopsy", f"family:{sample.family}", "window:holdout"],
+                    embedding=embedding,
+                )
+                emit(f"[evolve] autopsy: {autopsy_report['summary']}")
+                for line in autopsy_mod.console_lines(autopsy_report)[1:4]:
+                    emit(line)
+            except Exception as exc:  # never let the diagnosis kill the run
+                notes.append(f"autopsy skipped: {exc}")
+
+            # ---- critic: may this be deployed at all? ---------------------
+            verdict = critic_mod.judge(
+                hold["metrics"],
+                genome=sample.genome,
+                equity=hold.get("equity"),
+                trades=hold.get("trades"),
+                settings=s,
+                min_trades=int(s.evaluation.min_trades),
+            )
+            critic_report = verdict.as_dict()
+            emit(f"[evolve] critic: {verdict.text}")
+            for warn in verdict.warnings:
+                emit(f"[evolve] critic warning: {warn}")
+
             if champion is None:
                 notes.append(
                     "No candidate passed all gates: nothing was promoted to the hall of "
@@ -255,6 +302,8 @@ class Evolver:
             candidates=all_candidates,
             champion=champion,
             holdout=holdout_report,
+            autopsy=autopsy_report,
+            critic=critic_report,
             metric=s.evaluation.metric,
             llm_enabled=s.llm.enabled,
             llm_available=llm_available,
@@ -459,6 +508,8 @@ def write_report(result: EvolutionResult, settings: Settings, outdir: str = "rep
         "champion": result.champion.genome if result.champion else None,
         "champion_fitness": result.champion.fitness if result.champion else None,
         "holdout": result.holdout,
+        "autopsy": result.autopsy,
+        "critic": result.critic,
         "regime_luck_warning": result.regime_warning,
         "settings": as_dict(settings),
     }
@@ -539,6 +590,22 @@ def render_markdown(result: EvolutionResult, settings: Settings) -> str:
         if h["regime_luck_warning"]:
             L.append(f"- **regime-luck warning**: {h['regime_luck_warning']}")
     L.append("")
+
+    L.append("## Critic: may this be deployed?")
+    L.append("")
+    if result.critic is None:
+        L.append("No verdict (no candidate to judge).")
+    else:
+        L.append(critic_mod.render_markdown(result.critic))
+    L.append("")
+
+    if result.autopsy is None:
+        L.append("## Autopsy")
+        L.append("")
+        L.append("Not run (no candidate to dissect).")
+        L.append("")
+    else:
+        L.append(autopsy_mod.render_markdown(result.autopsy))
 
     L.append("## Notes and limits")
     L.append("")

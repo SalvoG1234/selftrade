@@ -43,7 +43,23 @@ def test_run_produces_report_and_memory(settings, df, tmp_path):
     assert result.report_md and Path(result.report_md).exists()
     assert result.report_json and Path(result.report_json).exists()
     assert mem.stats()["candidates"] == len(result.candidates)
-    assert mem.stats()["lessons"] == len(result.generations)
+    # one lesson per generation, plus the autopsy lesson of the champion
+    assert mem.stats()["lessons"] == len(result.generations) + 1
+    tags = {t for lesson in mem.lessons() for t in lesson["tags"]}
+    assert "autopsy" in tags
+
+
+def test_run_records_autopsy_and_critic(settings, df, tmp_path):
+    result, mem = run(settings, df, tmp_path)
+    assert result.autopsy is not None
+    assert result.critic is not None
+    assert result.autopsy["summary"]
+    assert isinstance(result.critic["approved"], bool)
+    assert result.critic["checks"]
+    md = Path(result.report_md).read_text()
+    assert "## Critic" in md
+    assert "## Autopsy" in md
+    assert result.autopsy["summary"] in md
 
 
 def test_report_json_shape(settings, df, tmp_path):
@@ -53,6 +69,8 @@ def test_report_json_shape(settings, df, tmp_path):
     assert data["llm_available"] is False
     assert "generations" in data
     assert "holdout" in data
+    assert data["autopsy"]["n_trades"] == result.autopsy["n_trades"]
+    assert "approved" in data["critic"]
 
 
 def test_report_declares_deterministic(settings, df, tmp_path):

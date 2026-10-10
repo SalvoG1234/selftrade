@@ -177,7 +177,14 @@ def holdout_eval(
         allow_short=bt.allow_short,
         timeframe=settings.data.timeframe,
     )
-    return {"metrics": res.metrics, "n_trades": int(res.metrics.get("n_trades", 0))}
+    return {
+        "metrics": res.metrics,
+        "n_trades": int(res.metrics.get("n_trades", 0)),
+        # Kept so the autopsy and the critic can look at the same single run
+        # instead of evaluating the holdout a second time.
+        "equity": res.equity,
+        "trades": res.trades,
+    }
 
 
 def regime_luck_warning(

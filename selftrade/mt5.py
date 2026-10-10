@@ -413,14 +413,25 @@ def compute_lots(
         return _round_volume(float(cfg.fixed_lots), info), notes
 
     value_per_point_per_lot = tick_value * (point / tick_size)
-    risk_amount = float(cfg.risk_pct) * balance
+    # The live rail cannot size above the sealed per-position cap, even if the
+    # config asks for more (see selftrade/risk_rules.py - no override exists).
+    from .risk_rules import effective_position_size
+
+    cap = effective_position_size(settings)
+    risk_pct = min(float(cfg.risk_pct), cap)
+    if risk_pct < float(cfg.risk_pct):
+        notes.append(
+            f"risk_pct clamped from {float(cfg.risk_pct)} to {risk_pct} by the sealed "
+            f"{cap * 100:.1f}% per-position cap"
+        )
+    risk_amount = risk_pct * balance
     loss_per_lot = value_per_point_per_lot * float(sl_points)
     if loss_per_lot <= 0:
         notes.append("degenerate stop distance: using fixed lots")
         return _round_volume(float(cfg.fixed_lots), info), notes
     raw = risk_amount / loss_per_lot
     lots = _round_volume(raw, info)
-    notes.append(f"sized by risk_pct={cfg.risk_pct} over {sl_points} points -> {lots} lots")
+    notes.append(f"sized by risk_pct={risk_pct} over {sl_points} points -> {lots} lots")
     return lots, notes
 
 

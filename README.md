@@ -67,9 +67,14 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 7. **Paper** — forward simulation of the champion on an out-of-sample window,
    restartable through a persistent cursor, using the same engine as the
    backtester.
-8. **Dashboard** — loopback HTML + JSON API with start/pause/resume/stop.
-9. **MT5 (optional)** — data, real spread→bps cost conversion, and orders behind
-   a two-key gate with a dry run by default.
+8. **Autopsy + critic** — losing trades are dissected (worst losses with their
+   entry context, clustered failure modes, overfit caveats) and written to the
+   memory as a lesson; a **critic** refuses to deploy anything that breaks the
+   **sealed risk limits** (`frozen` dataclass, SHA-256 pinned, no config key, no
+   genome and no env var can move them) — see `docs/AUTOPSY-AND-CRITIC.md`.
+9. **Dashboard** — loopback HTML + JSON API with start/pause/resume/stop.
+10. **MT5 (optional)** — data, real spread→bps cost conversion, and orders behind
+    a two-key gate with a dry run by default.
 
 ## Commands
 
@@ -86,6 +91,9 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 | `mcp [--out .mcp.json]` | MCP config for REA + Ruflo |
 | `mt5 doctor\|symbols\|bars\|account\|positions\|costs\|order\|close` | Trading.com bridge |
 | `invest [--champion \| --family F] [--window W] [--initial-cash C] [--out F] [--json]` | money simulation on real prices: equity vs buy & hold, cost drag, SVG charts |
+| `autopsy [--champion \| --family F] [--window W] [--worst N] [--out F] [--json]` | post-mortem of the losers: worst losses with entry context, clustered failure modes, and the lesson stored in the memory |
+| `critic [--champion \| --family F] [--window W] [--json]` | judge deployment against the sealed risk limits; exit 1 = refused, and `paper --create` refuses too |
+| `risk show\|verify\|seal` | the read-only risk layer and its SHA-256 seal |
 | `paper [--create] [--run] [--all] [--reset] [--status] [--session ID] [--champion] [--json]` | forward paper trading |
 | `serve [--host H] [--port P]` | local dashboard |
 | `session status\|start\|pause\|resume\|stop [--generations N]` | control the tracked loop |
@@ -101,8 +109,8 @@ config.yaml              all settings (typed + validated)
 selftrade/               the package (see docs/ARCHITECTURE.md for the module map)
 tests/                   one module per source module; stubs for Ollama/REA/MT5
 docs/                    WINDOWS-SETUP, ARCHITECTURE, PAPER-TRADING, DASHBOARD,
-                         INVESTMENT-SIM, EXTENDING, REA-INTEGRATION, RUFLO-SWARM,
-                         TRADING-COM-MT5
+                         INVESTMENT-SIM, AUTOPSY-AND-CRITIC, EXTENDING,
+                         REA-INTEGRATION, RUFLO-SWARM, TRADING-COM-MT5
 data/ state/ reports/    git-ignored runtime data
 user_data/strategies/    exported freqtrade strategies
 setup.ps1 run.ps1 paper.ps1 control.ps1 dashboard.ps1 mt5.ps1
@@ -137,12 +145,17 @@ model. Every value is overridable from the CLI:
 
 | Check | Result |
 | --- | --- |
-| `python -m pytest` | **284 passed** (one test module per source module) |
+| `python -m pytest` | **329 passed** (one test module per source module) |
 | `data --fetch --rows 18000` | 18 000 **real** BTC/USDT 4h candles from the public mirror, 2018-07-23 → 2026-10-10, close 7 733.74 → 82 819.29, written to `data/BTCUSDT_4h.csv` (50 s, 18 paged requests) |
 | `evolve --generations 12 --no-llm` on that data | 120 candidates, 12 report generations; fold-mean Sharpe 0.886 for the champion, **holdout read #1 Sharpe −0.55 → the holdout rejected it** |
 | `invest --champion --window holdout` | 10 000 → 8 456 USDT (−15.4%, CAGR −9.70%, DD 28.4%) vs buy & hold 8 608 USDT (−13.9%, DD 53.4%); 90 trades, 20% win rate, 2 472 USDT of costs; zero-cost counterfactual +9.3% |
 | `invest --champion --window full` | in-sample (labelled as biased): 10 000 → 70 386 USDT vs buy & hold 107 466; 150 908 USDT of costs |
 | investment charts | 4 inline-SVG charts (equity vs buy & hold, underwater, price with entries/exits, per-year bars) rendered in the preview panel from a single HTML file with no remote assets |
+| `risk show` / `risk verify` | the sealed panel printed with its SHA-256; the seal file is written on first use and re-verified afterwards |
+| `critic --champion` on the real data | **Refused** (exit 1): *"28.4% drawdown breaks the sealed 15.0% limit; the worst day lost 4.03%, past the sealed 2.0% daily halt. I will not deploy it."* |
+| `autopsy --champion` on the real data | *"Loaded 90 trades - 72 losers (80%); the worst 5 took 1,162.35 out of the account. Dominant failure mode: entry in above-median volatility (24 of 72 losers, 33%)."* + the worst-5 table with RSI/200-day/ATR context |
+| `paper --create --champion` | refused by the critic (exit 1) with the reason on stderr; the refusal is recorded as a lesson |
+| `evolve` report | now contains `## Critic` (verdict + checks + warnings) and `## Autopsy` (worst losses, failure modes, caveats) |
 | `doctor` | python/deps, data (12 000 rows), Ollama (UP), REA (disabled), MT5 (disabled), memory — no fatal errors |
 | `data --rows 12000` | wrote 12 000 bars, 2019-01-01 → 2020-05-14 (UTC) |
 | `evolve --generations 2 --no-llm` | 2 generations, 12 candidates, report + JSON written; holdout read once; report says the proposals were deterministic |

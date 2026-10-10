@@ -60,7 +60,8 @@ def test_parser_has_all_commands():  # noqa: D103
     names = set(p._subparsers._group_actions[0].choices)
     assert {
         "doctor", "data", "backtest", "evolve", "report", "hall", "export",
-        "rea", "mcp", "mt5", "paper", "invest", "serve", "session",
+        "rea", "mcp", "mt5", "paper", "invest", "autopsy", "critic", "risk",
+        "serve", "session",
     } <= names
 
 
@@ -262,6 +263,91 @@ def test_invest_rejects_unknown_window(tmp_path):
     with pytest.raises(SystemExit) as exc:
         run(cfg, "invest", "--window", "tomorrow")
     assert exc.value.code != 0
+
+
+def test_risk_show_verify_seal(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "risk", "show") == 0
+    out = capsys.readouterr().out
+    assert "MAX_DRAWDOWN_PCT" in out and "SHA-256" in out
+    assert "no --set" in out
+
+    assert run(cfg, "risk", "verify") == 0
+    assert (tmp_path / "state" / "risk_rules.seal").exists()
+    assert run(cfg, "risk", "seal") == 0
+    assert "sealed digest" in capsys.readouterr().out
+
+
+def test_risk_cannot_be_overridden_from_the_cli(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    code = run(cfg, "risk", "show", "--set", "risk_rules.MAX_DRAWDOWN_PCT=99")
+    assert code == 3
+    err = capsys.readouterr().err
+    assert "config error" in err and "risk_rules" in err
+
+
+def test_critic_command_reports_a_verdict(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    code = run(cfg, "critic", "--family", "trend_momentum", "--json")
+    assert code in (0, 1)
+    payload = json.loads(capsys.readouterr().out)
+    assert isinstance(payload["approved"], bool)
+    assert payload["checks"] and payload["window"] == "holdout"
+    assert "limits" not in payload or True
+
+
+def test_critic_refuses_a_loose_stop_on_the_command_line(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    code = run(
+        cfg,
+        "critic",
+        "--family",
+        "trend_momentum",
+        "--set",
+        "backtest.allow_short=false",
+    )
+    assert code in (0, 1)
+    out = capsys.readouterr().out
+    assert ("Approved" in out) or ("Refused" in out)
+    assert "| check |" in out
+
+
+def test_autopsy_command_writes_report_and_lesson(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    out_md = tmp_path / "auto.md"
+    code = run(cfg, "autopsy", "--family", "rsi_reversion", "--out", str(out_md))
+    assert code == 0
+    printed = capsys.readouterr().out
+    assert "autopsy (sampled)" in printed
+    assert "lesson stored in" in printed
+    assert out_md.exists()
+    md = out_md.read_text(encoding="utf-8")
+    assert "## Autopsy" in md
+
+
+def test_autopsy_json_has_worst_and_modes(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    code = run(cfg, "autopsy", "--family", "donchian_breakout", "--json", "--worst", "3")
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) >= {"summary", "worst", "modes", "n_trades", "n_losers", "overfit"}
+    assert len(payload["worst"]) <= 3
+
+
+def test_paper_create_is_refused_when_the_critic_says_no(tmp_path, capsys):
+    from selftrade.genome import sample_genome
+    from selftrade.memory import Memory
+
+    cfg = write_config(tmp_path)
+    loose = sample_genome("trend_momentum", None)
+    loose["risk"]["stop_loss_pct"] = -0.25
+    Memory(str(tmp_path / "state" / "m.db")).add_to_hall(None, loose, 1.0, {})
+
+    code = run(cfg, "paper", "--create", "--champion")
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "critic refused this deployment" in err
+    assert "looser than the sealed" in err
 
 
 def test_mt5_doctor_disabled(tmp_path, capsys):

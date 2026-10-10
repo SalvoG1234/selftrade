@@ -41,8 +41,16 @@ def create_session(
     memory: Memory,
     genome: dict[str, Any] | None = None,
     name: str | None = None,
+    *,
+    deploy_gate: bool = True,
 ) -> int:
-    """Create a new paper session.  Uses the hall-of-fame champion by default."""
+    """Create a new paper session.  Uses the hall-of-fame champion by default.
+
+    ``deploy_gate`` runs the critic against the sealed risk limits first: a genome
+    that breaks a hard limit is **refused** here, with the reasons recorded as a
+    lesson in the memory, instead of being quietly paper-traded.  Tests that only
+    exercise the paper mechanics pass ``deploy_gate=False``; the CLI never does.
+    """
     if genome is None:
         champ = memory.champion()
         if champ is None:
@@ -53,6 +61,24 @@ def create_session(
     genome = validate_genome(genome)
 
     df = load_dataframe(settings)
+
+    if deploy_gate:
+        from . import critic as critic_mod
+
+        verdict, _res, _cut = critic_mod.verdict_for_genome(
+            settings, genome, df, window=str(getattr(settings.paper, "window", "holdout"))
+        )
+        if not verdict.approved:
+            detail = verdict.text
+            if verdict.warnings:
+                detail += " Warnings: " + "; ".join(verdict.warnings)
+            memory.add_lesson(
+                None,
+                f"Deploy refused by the critic: {detail}",
+                tags=["critic", "refused", f"family:{genome['family']}"],
+            )
+            raise RuntimeError(f"the critic refused this deployment - {detail}")
+
     window, label = select_window(df, settings)
     sid = memory.create_paper_session(
         name=name or f"{settings.data.symbol}-{label}",
@@ -211,7 +237,11 @@ def cli(settings: Any, args: Any) -> int:
         chunk = None
         if args.champion:
             chunk = memory.champion()
-        sid = create_session(settings, memory, genome=chunk["genome"] if chunk else None)
+        try:
+            sid = create_session(settings, memory, genome=chunk["genome"] if chunk else None)
+        except RuntimeError as exc:
+            print(f"paper: {exc}", file=__import__("sys").stderr)
+            return 1
         st = paper_status(settings, memory, sid)
         print(f"created paper session {sid}: {st['name']} window={st['window']} bars={st['total_bars']}")
         print(f"  genome: {st['genome_description']}")

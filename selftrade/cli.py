@@ -377,6 +377,145 @@ def cmd_invest(args) -> int:
     return 0
 
 
+def _window_simulation(settings, genome, window: str):
+    """Simulate one genome on a window; shared by `autopsy` and `critic`."""
+    from .backtest import simulate
+    from .genome import validate_genome
+    from .invest import select_window
+
+    df = _load_df(settings)
+    cut = select_window(df, settings, window)
+    bt = settings.backtest
+    res = simulate(
+        cut,
+        validate_genome(genome),
+        initial_cash=bt.initial_cash,
+        fee_bps=bt.fee_bps,
+        slippage_bps=bt.slippage_bps,
+        position_size=bt.position_size,
+        allow_short=bt.allow_short,
+        timeframe=settings.data.timeframe,
+    )
+    return cut, res
+
+
+def cmd_autopsy(args) -> int:
+    """Post-mortem of the losing trades: worst losses, clusters, rules to change."""
+    settings = _load(args)
+    from . import autopsy as autopsy_mod
+
+    got = _champion_or_family(settings, args)
+    if got is None:
+        return 1
+    genome, origin = got
+    cut, res = _window_simulation(settings, genome, args.window)
+    report = autopsy_mod.autopsy(
+        res.trades,
+        cut,
+        genome,
+        worst_n=args.worst,
+        min_trades=settings.evaluation.min_trades,
+        window_label=args.window,
+        origin=origin,
+    )
+    lesson = autopsy_mod.lesson_text(report)
+    Memory(settings.memory.db).add_lesson(
+        None,
+        lesson,
+        tags=["autopsy", f"family:{report['family']}", f"window:{args.window}"],
+    )
+
+    if args.json:
+        _print_json(report)
+        return 0
+
+    print(f"autopsy ({origin}) window={args.window} bars={len(cut)}")
+    for line in autopsy_mod.console_lines(report):
+        print(line)
+    print(f"  lesson stored in {settings.memory.db}")
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(autopsy_mod.render_markdown(report), encoding="utf-8")
+        print(f"  wrote {out}")
+    return 0
+
+
+def cmd_critic(args) -> int:
+    """Judge whether this genome may be deployed against the sealed limits."""
+    settings = _load(args)
+    from . import critic as critic_mod
+
+    got = _champion_or_family(settings, args)
+    if got is None:
+        return 1
+    genome, origin = got
+    cut, res = _window_simulation(settings, genome, args.window)
+    verdict = critic_mod.judge(
+        res.metrics,
+        genome=genome,
+        equity=res.equity,
+        trades=res.trades,
+        settings=settings,
+        min_trades=settings.evaluation.min_trades,
+    )
+    payload = {
+        "origin": origin,
+        "window": args.window,
+        "bars": int(len(cut)),
+        "metrics": {
+            k: res.metrics.get(k)
+            for k in ("total_return", "max_drawdown", "n_trades", "win_rate", "sharpe")
+            if k in res.metrics
+        },
+        **verdict.as_dict(),
+    }
+    if args.json:
+        _print_json(payload)
+        return 0 if verdict.approved else 1
+    print(f"critic ({origin}) window={args.window} bars={len(cut)}")
+    print(critic_mod.render_markdown(verdict))
+    if verdict.approved:
+        print("\ndeployment is allowed by the sealed risk layer.")
+        return 0
+    print(
+        "\ndeployment refused. `paper --create` will refuse it too; the sealed limits "
+        "are not a suggestion.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def cmd_risk(args) -> int:
+    """Show / verify / seal the read-only risk layer."""
+    settings = _load(args)
+    from . import risk_rules
+
+    action = args.action or "show"
+    if action == "show":
+        print("selftrade sealed risk limits (read-only)")
+        print(risk_rules.sealed_block())
+        print(f"seal file: {risk_rules.seal_path(settings)}")
+        print(
+            "this layer is not part of config.yaml: no --set, no genome and no LLM "
+            "proposal can reach it"
+        )
+        return 0
+    if action == "seal":
+        path = risk_rules.write_seal(settings)
+        print(f"sealed digest {risk_rules.digest_of()} -> {path}")
+        return 0
+    if action == "verify":
+        info = risk_rules.verify_seal(settings)
+        _print_json(info)
+        if not info["ok"]:
+            print(f"risk: {info['reason']}", file=sys.stderr)
+            return 1
+        return 0
+    print(f"unknown risk action: {action}", file=sys.stderr)
+    return 1
+
+
 def cmd_paper(args) -> int:
     settings = _load(args)
     from . import paper as paper_mod
@@ -574,6 +713,28 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", help="markdown path (.html/.json written next to it)")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_invest)
+
+    for name, func, extra in (
+        (
+            "autopsy",
+            cmd_autopsy,
+            "post-mortem of losing trades: worst losses and clustered failure modes",
+        ),
+        ("critic", cmd_critic, "judge deployment against the sealed risk limits"),
+    ):
+        sp = sub.add_parser(name, help=extra)
+        sp.add_argument("--champion", action="store_true")
+        sp.add_argument("--family")
+        sp.add_argument("--window", choices=["holdout", "full", "recent"], default="holdout")
+        sp.add_argument("--json", action="store_true")
+        if name == "autopsy":
+            sp.add_argument("--worst", type=int, default=5)
+            sp.add_argument("--out")
+        sp.set_defaults(func=func)
+
+    sp = sub.add_parser("risk", help="sealed, read-only risk limits")
+    sp.add_argument("action", nargs="?", choices=["show", "verify", "seal"], default="show")
+    sp.set_defaults(func=cmd_risk)
 
     sp = sub.add_parser("paper", help="forward paper trading")
     sp.add_argument("--create", action="store_true")

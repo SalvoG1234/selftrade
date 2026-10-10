@@ -20,6 +20,9 @@ remembers what happened — good *and* bad. It never trades real money by defaul
 | `propose.py` | Next-move proposal: LLM when available, deterministic otherwise. |
 | `agent.py` | The `Evolver` loop and the markdown/JSON report. |
 | `freqtrade_export.py` | Export a self-contained freqtrade strategy. |
+| `risk_rules.py` | The sealed risk layer: frozen limits, SHA-256 pin, `MODEL_CAN_OVERRIDE = False`, reachable by no config key, genome or env var. |
+| `critic.py` | The deployment verdict: hard checks against the sealed limits plus recorded warnings. |
+| `autopsy.py` | Post-mortem of the losers: worst losses with causal entry context, clustered failure modes, overfit caveats, lesson for the memory. |
 | `invest.py` | Money simulation on real prices: equity vs buy & hold, measured cost drag, per-year table, inline-SVG charts, md/HTML/JSON reports. |
 | `paper.py` | Forward paper trading with a persistent cursor. |
 | `session.py` | Persistent start / pause / resume / stop control. |
