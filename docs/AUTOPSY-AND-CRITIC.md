@@ -47,11 +47,13 @@ Sealing is enforced, not decorative:
 
 **Scope, deliberately:** the limits guard *deployment* - the critic verdict, the
 paper session and the live sizing rail (`mt5.compute_lots` clamps `risk_pct` to
-`MAX_POSITION_PCT`). The research backtester is **not** clamped, because
-exploration has to be free and, more importantly, paper/backtest/`invest` must stay
-comparable by construction. The critic therefore *warns* when the configured
-research sizing (95%) is above the sealed 5% instead of pretending the two rails
-are the same thing.
+`MAX_POSITION_PCT`, and the paper session trades
+`risk_rules.effective_position_size`). The research backtester is **not** clamped,
+because exploration has to be free; `invest` follows the research engine, and the
+paper session is the one rail that is clamped *and* comparable - it reproduces the
+engine trade for trade at that smaller size (`tests/test_execution_runner.py`). The
+critic therefore *warns* when the configured research sizing (95%) is above the
+sealed 5% instead of pretending the two rails are the same thing.
 
 ## 2. The critic (`selftrade/critic.py`)
 
@@ -141,10 +143,16 @@ entries are wrong. The lesson written to memory says exactly that.
 * The critic judges **one genome on one window**. It is a risk gate, not a
   portfolio supervisor: no correlation across positions, no broker-side kill
   switch (MT5 has its own two-key gate), no intraday liquidation logic.
-* `MAX_POSITION_PCT` binds the live rail only; the research engine keeps the
-  configured size on purpose (see above).
+* `MAX_POSITION_PCT` binds the paper session and the live rail; the research engine
+  keeps the configured size on purpose (see above), so the same genome reports a
+  larger return in research than it does in paper. That gap is the size difference,
+  not a second opinion about the strategy.
 * The autopsy's `high_vol` label uses the window median of ATR% - a diagnostic
   reference computed with hindsight, never a trading input.
 * Failure modes are single-condition counts with a winner contrast; they are
   leads for the next generation, not statistical proof of causation.
+* Both tools read **one** realized run. How much of it is the *draw* (resampling
+  the trade sequence) and how much is the *numbers* (moving every parameter by
+  ±δ) is a separate question, and a separate read-only command: `stress`, see
+  `docs/STRESS.md`.
 * Everything here is historical. It is not a forecast and not financial advice.

@@ -179,9 +179,9 @@ def judge(
     configured = float(getattr(getattr(settings, "backtest", None), "position_size", 0.0) or 0.0)
     if configured * 100.0 > limits.MAX_POSITION_PCT + 1e-9:
         warnings.append(
-            f"research sizing is {configured * 100:.0f}% of equity; the live rail will be "
-            f"clamped to the sealed {limits.MAX_POSITION_PCT:.1f}% per position "
-            f"(research, paper and backtest stay comparable on purpose)"
+            f"research sizing is {configured * 100:.0f}% of equity; the paper session and "
+            f"the live rail are clamped to the sealed {limits.MAX_POSITION_PCT:.1f}% per "
+            f"position (the research backtester keeps the configured size on purpose)"
         )
     if 0 < n_trades < max(min_trades * 2, 12):
         warnings.append(

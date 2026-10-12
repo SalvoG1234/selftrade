@@ -61,7 +61,7 @@ def test_parser_has_all_commands():  # noqa: D103
     assert {
         "doctor", "data", "backtest", "evolve", "report", "hall", "export",
         "rea", "mcp", "mt5", "paper", "invest", "autopsy", "critic", "risk",
-        "serve", "session", "broker", "switch",
+        "serve", "session", "broker", "switch", "binance", "notify",
     } <= names
 
 
@@ -80,7 +80,7 @@ def test_globals_extracted_from_any_position():
 
 def test_set_applies_before_and_after_subcommand(tmp_path, capsys):
     cfg = write_config(tmp_path)
-    code = run(cfg, "session", "start", "--generations", "4", "--set", "evolution.seed=11")
+    code = run(cfg, "session", "status", "--set", "evolution.seed=11")
     assert code == 0
 
 
@@ -202,16 +202,70 @@ def test_export_writes_file(tmp_path, capsys):
     assert "compute_signals" in files[0].read_text(encoding="utf-8")
 
 
-def test_session_commands(tmp_path, capsys):
+def test_session_status_reports_the_loop(tmp_path, capsys):
     cfg = write_config(tmp_path)
     assert run(cfg, "session", "status") == 0
-    assert run(cfg, "session", "pause") == 0
-    state = json.loads((tmp_path / "state" / "session.json").read_text(encoding="utf-8"))
-    assert state["pending"] == "pause"
-    assert run(cfg, "session", "resume") == 0
+    state = json.loads(capsys.readouterr().out)
+    assert state["loop"]["running"] is False
+    assert state["loop"]["log"].endswith("loop.log")
+
+
+def test_session_steering_is_refused_when_nothing_runs(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    for action in ("pause", "resume", "stop"):
+        assert run(cfg, "session", action) == 1, action
+        assert "no loop is running" in capsys.readouterr().err
+    # nothing was written for a loop that does not exist
+    assert not (tmp_path / "state" / "session.json").exists()
+
+
+def test_session_start_launches_the_loop(tmp_path, capsys, monkeypatch):
+    """``start`` spawns the loop through the runner (faked here: a real one evolves)."""
+    from selftrade import loop as loop_mod
+
+    seen = {}
+
+    class FakeRunner:
+        def __init__(self, settings, config_path=None):
+            seen["config"] = config_path or None
+
+        def start(self, generations):
+            seen["generations"] = generations
+            return 200, {
+                "ok": True,
+                "action": "start",
+                "command": "python -m selftrade evolve --session --generations 3",
+                "loop": {
+                    "running": True, "pid": 4242, "generations_total": 3,
+                    "log": "state/loop.log",
+                },
+            }
+
+        def request(self, action):  # pragma: no cover - start is the path under test
+            raise AssertionError("request must not be called by `start`")
+
+    monkeypatch.setattr(loop_mod, "LoopRunner", FakeRunner)
+    cfg = write_config(tmp_path)
     assert run(cfg, "session", "start", "--generations", "3") == 0
-    state = json.loads((tmp_path / "state" / "session.json").read_text(encoding="utf-8"))
-    assert state["generations_total"] == 3
+    out = capsys.readouterr().out
+    assert "pid 4242" in out and "state/loop.log" in out
+    assert seen["generations"] == 3 and seen["config"] == str(cfg)
+
+
+def test_session_start_refuses_when_one_is_running(tmp_path, capsys, monkeypatch):
+    from selftrade import loop as loop_mod
+
+    class BusyRunner:
+        def __init__(self, settings, config_path=None):
+            pass
+
+        def start(self, generations):
+            return 409, {"ok": False, "action": "start", "error": "the loop is already running (pid 7)"}
+
+    monkeypatch.setattr(loop_mod, "LoopRunner", BusyRunner)
+    cfg = write_config(tmp_path)
+    assert run(cfg, "session", "start") == 1
+    assert "already running" in capsys.readouterr().err
 
 
 def test_paper_status_without_session_exits_nonzero(tmp_path, capsys):
@@ -408,6 +462,50 @@ def test_broker_demo_prints_a_readable_story(tmp_path, capsys):
     assert "not available here" not in out
 
 
+def test_binance_commands_without_config_never_touch_the_network(tmp_path, capsys):
+    """A disabled rail must say so, send nothing and never call the API."""
+    cfg = write_config(tmp_path)
+    assert run(cfg, "binance", "doctor", "--json") == 0
+    info = json.loads(capsys.readouterr().out)
+    assert info["enabled"] is False
+    assert info["host_is_testnet"] is True
+    assert "nothing was sent" in info["reason"]
+
+    for action in ("account", "positions", "bars", "exchange", "history", "open"):
+        assert run(cfg, "binance", action) == 1
+        captured = capsys.readouterr()
+        assert "disabled" in captured.out + captured.err
+
+
+def test_binance_live_needs_both_keys(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    # the first key is missing: `--live` alone must not reach the API
+    assert run(cfg, "binance", "order", "--qty", "1", "--live") == 1
+    captured = capsys.readouterr()
+    assert "disabled in config" in captured.out + captured.err
+
+    # the first key is present, the second is not: still refused, and no broker built
+    assert run(cfg, "binance", "order", "--qty", "1", "--live", "--set",
+               "binance.enabled=true") == 1
+    err = capsys.readouterr().err
+    assert "refusing --live" in err
+    assert "binance.live: true" in err
+
+
+def test_binance_calls_reads_the_api_log(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "binance", "calls", "--json") == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_binance_never_reports_itself_as_live(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "binance", "doctor", "--json") == 0
+    info = json.loads(capsys.readouterr().out)
+    assert info["host_is_testnet"] is True
+    assert "live" not in json.dumps(info)
+
+
 def test_switch_command_arms_stops_and_resets(tmp_path, capsys):
     cfg = write_config(tmp_path)
     assert run(cfg, "switch", "show") == 0
@@ -432,3 +530,171 @@ def test_unknown_set_key_exits_config_error(tmp_path, capsys):
 def test_missing_config_file_is_a_config_error(tmp_path, capsys):
     code = main(["--config", str(tmp_path / "nope.yaml"), "hall"])
     assert code == 3
+
+# ---------------------------------------------------------------- risk alerts
+
+def test_risk_limits_says_nothing_to_measure_without_a_session(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "risk", "limits") == 2          # 2 = nothing to measure
+    out = capsys.readouterr().out
+    assert "not measurable" in out and "no paper session" in out
+    assert "notify.disabled" in out                 # and who would be told
+
+
+def test_risk_limits_json_and_its_exit_codes(tmp_path, capsys):
+    from selftrade.memory import Memory
+
+    cfg = write_config(tmp_path)
+    assert run(cfg, "risk", "limits", "--json") == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False and payload["checks"] == []
+    assert payload["limits"]["MAX_DRAWDOWN_PCT"] == 15.0 and payload["version"] == 1
+    assert payload["alerts"]["ready"] is False
+
+    # a session inside the limits, close enough to warn: 0, and the room is reported
+    mem = Memory(str(tmp_path / "state" / "m.db"))
+    sid = mem.create_paper_session(
+        name="cli", genome={"family": "rsi_reversion", "params": {}, "risk": {}},
+        window="recent", total_bars=2, start_time="2024-01-01T00:00:00+00:00",
+        end_time="2024-01-01T01:00:00+00:00", initial_cash=10_000.0, settings={},
+    )
+    # 12% drawdown against a peak from the day before, and a small loss today: the
+    # halting limits are close (20% of the drawdown cap left) but neither is breached
+    mem.add_paper_equity(sid, [("2024-01-01 23:00:00+00:00", 10_000.0),
+                               ("2024-01-02 00:00:00+00:00", 8_900.0),
+                               ("2024-01-02 01:00:00+00:00", 8_800.0)])
+    mem.update_paper_cursor(sid, 3, 8_800.0, "active")
+    assert run(cfg, "risk", "limits") == 0
+    out = capsys.readouterr().out
+    assert "within the limits" in out and "max_drawdown 12.00% of the 15.00% cap" in out
+    assert "~ max_drawdown" in out          # flagged as inside the warning band
+
+    # past a halting cap: 1, the status a script can branch on
+    mem.replace_paper_results(
+        sid,
+        [],
+        [("2024-01-01 23:00:00+00:00", 10_000.0), ("2024-01-02 01:00:00+00:00", 8_000.0)],
+        3,
+        8_000.0,
+    )
+    assert run(cfg, "risk", "limits") == 1
+    out = capsys.readouterr().out
+    assert "BREACHED: max_drawdown" in out and "20.00% of the 15.00% cap" in out
+    # and the same command says the breach has not been sent to anybody yet
+    assert "PENDING [warning] [past]" in out and "past its cap" in out
+
+    # an engaged stop supersedes the band: the halt already carries every limit
+    assert run(cfg, "switch", "arm", "--reason", "drawdown limit breached") == 0
+    capsys.readouterr()
+    assert run(cfg, "risk", "limits") == 1
+    out = capsys.readouterr().out
+    assert "PENDING [halt]" in out and "PENDING [warning]" not in out
+
+
+def test_notify_status_reports_the_channel_and_what_is_pending(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "notify", "status") == 0
+    out = capsys.readouterr().out
+    assert "NOT ready: notify.disabled" in out
+    assert "nothing to send right now" in out
+    assert "notify_state.json" in out
+    assert "warns when a halting limit has <= 25% of its cap left" in out
+    assert "already past its cap" in out
+
+    assert run(cfg, "notify", "status", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ready"] is False and payload["reason"] == "notify.disabled"
+    assert payload["pending"] == [] and payload["switch"]["blocked"] is False
+    assert payload["sent"] == []          # nothing has ever left this channel
+
+
+def test_notify_test_and_watch_never_send_when_the_channel_is_off(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    assert run(cfg, "notify", "test") == 1
+    out = capsys.readouterr().out
+    assert "NOT sent" in out and "notify.disabled" in out
+    assert run(cfg, "notify", "watch", "--once") == 1
+    err = capsys.readouterr().err
+    assert "nothing would be sent" in err and "notify.enabled=true" in err
+    # and a halt is still *reported* as pending rather than silently dropped
+    assert run(cfg, "switch", "arm", "--reason", "test halt") == 0
+    capsys.readouterr()
+    assert run(cfg, "notify", "status") == 0
+    out = capsys.readouterr().out
+    assert "kill switch: ENGAGED - test halt" in out
+    assert "PENDING [halt]" in out and "dropped" in out
+
+
+def test_a_configured_channel_reports_pending_and_can_be_proven(tmp_path, capsys, monkeypatch):
+    from selftrade import notify as notify_mod
+
+    cfg = write_config(tmp_path)
+    monkeypatch.setenv("SELFTD_TELEGRAM_TOKEN", "tok")
+    monkeypatch.setenv("SELFTD_TELEGRAM_CHAT_ID", "chat")
+    sent: list[str] = []
+    monkeypatch.setattr(
+        notify_mod, "send", lambda s, text, **kw: (sent.append(text), (True, "sent"))[1]
+    )
+    assert run(cfg, "notify", "test") == 0
+    assert "sent" in capsys.readouterr().out and len(sent) == 1
+
+
+# ---------------------------------------------------------------- password
+
+
+def test_password_status_set_and_reset(tmp_path, capsys):
+    """The escape hatch for a forgotten password: the same rule as the page, never the value."""
+    from selftrade.credentials import CredentialStore
+
+    cfg = write_config(tmp_path)
+    path = tmp_path / "auth.json"
+    base = ["--set", f"dashboard.password_file={path}"]
+
+    assert run(cfg, "password", "status", *base) == 0
+    out = capsys.readouterr().out
+    assert "default" in out and "bootstrap password (0000)" in out
+    assert not path.exists()  # reading the state never creates it
+
+    assert run(cfg, "password", "set", "--value", "12", *base) == 1
+    assert "at least 4 characters" in capsys.readouterr().err
+    assert not path.exists()
+
+    assert run(cfg, "password", "set", "--value", "cli-set-pw", *base) == 0
+    assert "not stored" in capsys.readouterr().out
+    raw = path.read_text(encoding="utf-8")
+    assert "cli-set-pw" not in raw and "salt" in raw
+    assert CredentialStore(path).verify("cli-set-pw") is True
+
+    assert run(cfg, "password", "status", *base) == 0
+    assert "changed" in capsys.readouterr().out
+
+    assert run(cfg, "password", "reset", *base) == 1  # needs --confirm
+    assert path.exists()
+    assert run(cfg, "password", "reset", "--confirm", *base) == 0
+    assert not path.exists()
+    assert CredentialStore(path).verify("0000") is True
+
+
+def test_the_configured_minimum_length_binds_the_cli(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    path = tmp_path / "auth.json"
+    base = ["--set", f"dashboard.password_file={path}", "--set", "dashboard.password_min_length=8"]
+
+    assert run(cfg, "password", "set", "--value", "seven77", *base) == 1
+    assert "at least 8 characters" in capsys.readouterr().err
+    assert not path.exists()
+    assert run(cfg, "password", "set", "--value", "eight888", *base) == 0
+
+
+def test_an_environment_password_is_reported_as_winning(tmp_path, capsys, monkeypatch):
+    cfg = write_config(tmp_path)
+    path = tmp_path / "auth.json"
+    base = ["--set", f"dashboard.password_file={path}"]
+    monkeypatch.setenv("SELFTD_DASHBOARD_PASSWORD", "from-the-environment")
+
+    assert run(cfg, "password", "status", *base) == 0
+    out = capsys.readouterr().out
+    assert "SELFTD_DASHBOARD_PASSWORD is set" in out and "it wins" in out
+    # and writing one says so, rather than pretending the login changed
+    assert run(cfg, "password", "set", "--value", "cli-set-pw", *base) == 0
+    assert "still decides the login" in capsys.readouterr().out

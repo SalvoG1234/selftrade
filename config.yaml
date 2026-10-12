@@ -80,6 +80,25 @@ mt5:                         # Trading.com
   max_spread_points: 25
   allowed_symbols: []
 
+binance:                     # Spot TESTNET by default
+  enabled: false             # talks to the Binance API
+  live: false                # ARMS order sending (two keys: this AND --live)
+  allow_production: false    # opt in to a FUNDED host; off = a production URL is a config error.
+                             # Even when true, every sent order passes the sealed risk gate
+                             # (5%/2%/15%, exposure caps) and the kill switch first.
+  base_url: https://testnet.binance.vision/api
+  api_key_env: SELFTD_BINANCE_API_KEY       # only the NAME of the variable
+  api_secret_env: SELFTD_BINANCE_API_SECRET
+  symbol: BTC/USDT
+  allowed_symbols: []
+  quote_asset: USDT
+  symbol_suffix: ""
+  interval: 4h               # klines interval for live mark-to-market
+  kline_bars: 500
+  recv_window: 5000          # milliseconds, documented maximum 60000
+  timeout: 15.0
+  max_weight_per_min: 1200   # local ceiling on the weight Binance reports
+
 risk_gate:                   # pre-trade checks; the sealed limits are NOT here
   enabled: true
   risk_pct: 0.005            # share of equity a single trade may risk
@@ -91,20 +110,42 @@ risk_gate:                   # pre-trade checks; the sealed limits are NOT here
   allowed_symbols: []        # empty = every symbol the broker serves
 
 paper:
+  # forward session: orders through the risk_gate below, sized at the sealed 5% cap
   window: holdout            # holdout | recent | full
   window_bars: 2000
   step_bars: 168
   max_ticks: 0
 
+funding:                     # the SIMULATED capital account the agents work (docs/CAPITAL.md)
+  enabled: true              # `capital deposit` needs this; the ledger itself always shows
+  currency: USDT             # the unit credits are recorded in; no conversion is implied
+  max_deposit: 100000.0      # largest single credit; 0 or negative refuses every credit
+  max_total_capital: 1000000.0   # ceiling on total credited (deposits - withdrawals), ever
+  allow_withdrawal: true     # whether the operator may take capital back out
+
 dashboard:
-  host: 127.0.0.1
+  host: 127.0.0.1            # keep loopback; 0.0.0.0 opens the LAN (requires auth)
   port: 8787
-  auto_refresh_s: 15
+  auto_refresh_s: 15         # panels refresh
+  auth: true                 # login required; mandatory for a non-loopback bind
+  password_env: SELFTD_DASHBOARD_PASSWORD   # only the NAME; when set it WINS over the stored password
+  password_file: state/dashboard_auth.json  # the stored password: one salted hash, never the password
+  password_min_length: 4                    # the dashboard starts on the bootstrap 0000 until you change it
+  session_ttl_s: 86400
+  market_symbol: BTC/USDT    # live chart from Binance public data (no keys)
+  market_interval: 1m
+  market_bars: 180
+  market_refresh_s: 3.0
+  key_refresh_s: 60.0        # Binance key panel: read-only probe cadence (needs binance.enabled)
 
 session_file: state/session.json
 memory:
   db: state/selftrade.db
-notify:
-  enabled: false
-  telegram_token_env: SELFTD_TELEGRAM_TOKEN
-  telegram_chat_id_env: SELFTD_TELEGRAM_CHAT_ID
+notify:                      # risk alerts: the halt, and the warning before it
+  enabled: false             # opt-in; needs both env vars below, and sends nothing otherwise
+  telegram_token_env: SELFTD_TELEGRAM_TOKEN     # only the NAME of the variable
+  telegram_chat_id_env: SELFTD_TELEGRAM_CHAT_ID # only the NAME; values are never printed
+  warn_below_frac: 0.25      # warn when drawdown/daily loss have <=25% of their cap left (0 = off;
+                             # a limit already PAST its cap is always announced)
+  watch_interval_s: 30.0     # `notify watch` cadence; halts are announced once, never re-sent
+                             # (docs/NOTIFICATIONS.md: the bands, the ledger, one watcher)

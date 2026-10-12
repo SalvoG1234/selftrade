@@ -378,7 +378,13 @@ def _exchange_interval(timeframe: str) -> str:
 
 
 def _get_json(get: Any, base_url: str, params: dict[str, Any], timeout: float) -> Any:
-    url = f"{base_url.rstrip('/')}/api/v3/klines"
+    return _request_json(get, base_url, "/api/v3/klines", params, timeout)
+
+
+def _request_json(
+    get: Any, base_url: str, path: str, params: dict[str, Any], timeout: float
+) -> Any:
+    url = f"{base_url.rstrip('/')}{path}"
     try:
         resp = get(url, params=params, timeout=timeout)
     except requests.RequestException as exc:
@@ -396,11 +402,13 @@ def _get_json(get: Any, base_url: str, params: dict[str, Any], timeout: float) -
         payload = resp.json()
     except ValueError as exc:
         raise DataError(f"{base_url} returned a non-JSON body: {exc}") from exc
-    if isinstance(payload, dict):  # error object: {"code": .., "msg": ..}
+    # An error is a dict carrying both "code" and "msg"; some endpoints (e.g.
+    # /api/v3/ticker/24hr) legitimately answer with a dict, so the two must not
+    # be confused.
+    if isinstance(payload, dict) and "code" in payload and "msg" in payload:
         raise DataError(
-            f"{base_url} error {payload.get('code')}: {payload.get('msg')} "
-            f"(symbol={params.get('symbol')}, interval={params.get('interval')}). "
-            f"Use a listed symbol, e.g. BTC/USDT."
+            f"{base_url}{path} error {payload.get('code')}: {payload.get('msg')} "
+            f"(symbol={params.get('symbol')}). Use a listed symbol, e.g. BTC/USDT."
         )
     return payload
 
@@ -471,6 +479,44 @@ def fetch_klines(
         index=idx,
     )
     return ensure_ohlcv(df, min_rows=0, timeframe=timeframe)
+
+
+def fetch_ticker(
+    symbol: str = "BTC/USDT",
+    *,
+    base_url: str = DEFAULT_FETCH_BASE_URL,
+    session: Any = None,
+    timeout: float = 20.0,
+) -> dict[str, float]:
+    """The 24h rolling stats of one symbol, keyless and read-only.
+
+    ``GET /api/v3/ticker/24hr`` on the public mirror from the same configuration
+    as :func:`fetch_klines`.  ``session`` is injectable so this is testable
+    offline, like every other loader here.
+    """
+    sym = normalize_symbol(symbol)
+    get = getattr(session, "get", None) or requests.get
+    body = _request_json(get, base_url, "/api/v3/ticker/24hr", {"symbol": sym}, timeout)
+    if not isinstance(body, dict):
+        raise DataError(f"the ticker endpoint returned {type(body).__name__}, not an object")
+
+    def num(key: str) -> float:
+        try:
+            return float(body.get(key, 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    return {
+        "last": num("lastPrice"),
+        "open": num("openPrice"),
+        "high": num("highPrice"),
+        "low": num("lowPrice"),
+        "volume": num("volume"),
+        "quote_volume": num("quoteVolume"),
+        "change": num("priceChange"),
+        "change_pct": num("priceChangePercent") / 100.0,
+        "trades": num("count"),
+    }
 
 
 def save_csv(df: pd.DataFrame, path: str | Path) -> Path:

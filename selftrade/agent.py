@@ -32,10 +32,18 @@ from .evaluate import (
     metric_value,
     regime_luck_warning,
 )
-from .genome import complexity, describe, genome_key, sample_genome, validate_genome
+from .genome import (
+    complexity,
+    describe,
+    genome_diff,
+    genome_key,
+    sample_genome,
+    validate_genome,
+)
 from .llm import OllamaClient
 from .memory import Memory
 from .propose import Proposal, propose_next, retrieve_lessons
+from .repro import fingerprint as repro_fingerprint
 
 
 @dataclass
@@ -54,6 +62,14 @@ class Candidate:
     max_drawdown: float = 0.0
     rationale: str = ""
     key: str = ""
+    #: Row id in ``strategy_versions``: the recorded before/after lineage of this
+    #: candidate.  ``None`` when the version could not be written (the search still runs).
+    version_id: int | None = None
+    #: 1-based sequence of this version inside the run (the number a human reads).
+    version: int | None = None
+    parent_fitness: float | None = None
+    diff: list[dict[str, Any]] = field(default_factory=list)
+    outcome: str = ""
 
     @property
     def family(self) -> str:
@@ -78,6 +94,10 @@ class EvolutionResult:
     autopsy: dict[str, Any] | None = None
     critic: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
+    #: Provenance of this run: commit, dataset hash and the resulting repro id.
+    repro: dict[str, Any] | None = None
+    #: The run's version lineage: every parent -> candidate step, with its diff.
+    versions: list[dict[str, Any]] = field(default_factory=list)
 
 
 class Evolver:
@@ -134,7 +154,11 @@ class Evolver:
         llm_available = bool(
             use_llm and s.llm.enabled and self.llm is not None and self.llm.available()
         )
-        run_id = self.memory.start_run(note, as_dict(s))
+        # Provenance first: the commit and the dataset are recorded on the run *before*
+        # anything is evaluated, so every fitness below is traceable to both.
+        self._repro = repro_fingerprint(s, df=df)
+        self._version_seq = 0
+        run_id = self.memory.start_run(note, as_dict(s), repro=self._repro)
 
         # REA evidence (if any) is fed into the proposal prompt.
         self._rea_evidence: list[str] = []
@@ -151,6 +175,12 @@ class Evolver:
             f"[evolve] run #{run_id} | rows={len(df)} dev={len(dev)} holdout={len(hold_df)} "
             f"| llm={'on' if llm_available else 'off'}"
         )
+        emit(
+            f"[evolve] repro {self._repro.get('repro_id') or 'N/D'} "
+            f"| commit {self._repro.get('commit_short') or 'N/D'}"
+            f"{' (dirty)' if self._repro.get('dirty') else ''} "
+            f"| data {((self._repro.get('dataset') or {}).get('short')) or 'N/D'}"
+        )
 
         all_candidates: list[Candidate] = []
         generation_reports: list[dict[str, Any]] = []
@@ -158,6 +188,10 @@ class Evolver:
         elite: list[Candidate] = []
         stopped = False
         notes: list[str] = []
+        # Provenance caveats belong in the report's limits section: a run from a dirty
+        # worktree must say so where the numbers are read, not only in the dashboard.
+        for repro_note in self._repro.get("notes") or []:
+            notes.append(f"reproducibility: {repro_note}")
 
         if not llm_available:
             notes.append(
@@ -294,7 +328,34 @@ class Evolver:
 
         if champion is not None:
             self.memory.add_to_hall(run_id, champion.genome, champion.fitness, holdout_report)
+            if champion.version_id is not None:
+                # A candidate that passes every gate and wins the run is the one version a
+                # reader will look for later; label it as such instead of leaving "kept".
+                self.memory.set_version_outcome(champion.version_id, "champion")
             emit(f"[evolve] champion: {describe(champion.genome)}")
+
+        versions_summary = [
+            {
+                "version": c.version,
+                "generation": c.generation,
+                "family": c.family,
+                "origin": c.origin,
+                "outcome": "champion" if champion is c else c.outcome,
+                "fitness": c.fitness,
+                "parent_fitness": c.parent_fitness,
+                "delta_fitness": (
+                    float(c.fitness) - float(c.parent_fitness)
+                    if c.parent_fitness is not None
+                    else None
+                ),
+                "passed": c.passed,
+                "reason": c.reason,
+                "rationale": c.rationale,
+                "diff": c.diff,
+                "key": c.key,
+            }
+            for c in all_candidates
+        ]
 
         result = EvolutionResult(
             run_id=run_id,
@@ -311,6 +372,8 @@ class Evolver:
             regime_warning=warning,
             stopped=stopped,
             notes=notes,
+            repro=self._repro,
+            versions=versions_summary,
         )
         md_path, json_path = write_report(result, s, self.report_dir)
         result.report_md = str(md_path)
@@ -328,6 +391,11 @@ class Evolver:
             "report_md": str(md_path),
             "report_json": str(json_path),
             "stopped": stopped,
+            "repro_id": self._repro.get("repro_id"),
+            "commit": self._repro.get("commit_short"),
+            "dataset": (self._repro.get("dataset") or {}).get("short"),
+            "reproducible": self._repro.get("reproducible"),
+            "versions": self._version_seq,
         }
         self.memory.finish_run(run_id, summary, "stopped" if stopped else "ok")
         if self.session is not None:
@@ -354,10 +422,17 @@ class Evolver:
 
         for c in elite[:population]:
             pop.append(
-                Proposal(genome=c.genome, origin=c.origin, rationale="elite carried over")
+                Proposal(
+                    genome=c.genome,
+                    origin=c.origin,
+                    rationale="elite carried over",
+                    parent=c.genome,
+                    parent_fitness=float(c.fitness),
+                )
             )
 
         best = elite[0].genome if elite else None
+        best_fitness = float(elite[0].fitness) if elite else None
         remaining = max(0, population - len(pop))
         for _ in range(remaining):
             lessons = retrieve_lessons(
@@ -374,6 +449,8 @@ class Evolver:
                 llm=self.llm,
                 use_llm=llm_available,
             )
+            if prop.parent is not None and prop.parent_fitness is None:
+                prop.parent_fitness = best_fitness
             pop.append(prop)
         return pop
 
@@ -394,6 +471,7 @@ class Evolver:
             max_drawdown=float(rep["max_drawdown"]),
             rationale=prop.rationale,
             key=genome_key(prop.genome),
+            parent_fitness=prop.parent_fitness,
         )
         self.memory.add_candidate(
             run_id,
@@ -405,7 +483,40 @@ class Evolver:
             cand.passed,
             cand.reason,
         )
+        cand.version_id = self._record_version(prop, cand, gen, run_id)
         return cand
+
+    def _record_version(self, prop: Proposal, cand: Candidate, gen: int, run_id: int) -> int | None:
+        """Persist the parent -> candidate step with its diff, rationale and outcome.
+
+        This is what makes "what changed between version 12 and version 13" a stored
+        fact: the diff is taken against the genome the proposal actually came from (the
+        elite it was carried from, or the best it was mutated out of), not against
+        whatever happened to come first in the run.
+        """
+        self._version_seq += 1
+        cand.version = self._version_seq
+        cand.outcome = "kept" if cand.passed else "dropped"
+        cand.diff = genome_diff(prop.parent, cand.genome) if prop.parent else []
+        try:
+            return self.memory.add_strategy_version(
+                run_id,
+                genome=cand.genome,
+                parent=prop.parent,
+                generation=gen,
+                version=cand.version,
+                origin=cand.origin,
+                diff=cand.diff,
+                rationale=prop.rationale,
+                reason=cand.reason,
+                fitness=cand.fitness,
+                parent_fitness=prop.parent_fitness,
+                passed=cand.passed,
+                outcome=cand.outcome,
+            )
+        except Exception as exc:  # noqa: BLE001 - the search never dies over an audit row
+            self.log(f"[evolve] version not recorded for {cand.family}: {exc}")
+            return None
 
     def _dev_cache(self):
         if not hasattr(self, "_dev") or self._dev is None:
@@ -477,6 +588,10 @@ class Evolver:
             "n_trades": c.n_trades,
             "max_drawdown": c.max_drawdown,
             "rationale": c.rationale,
+            "version": c.version,
+            "parent_fitness": c.parent_fitness,
+            "diff": c.diff,
+            "outcome": c.outcome,
         }
 
 
@@ -511,10 +626,23 @@ def write_report(result: EvolutionResult, settings: Settings, outdir: str = "rep
         "autopsy": result.autopsy,
         "critic": result.critic,
         "regime_luck_warning": result.regime_warning,
+        "repro": result.repro,
+        "versions": result.versions,
         "settings": as_dict(settings),
     }
     json_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
     return md_path, json_path
+
+
+def _short_value(value: Any) -> str:
+    """A diff value short enough for a table cell, with no promise of precision."""
+    if value is None:
+        return "unset"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    return str(value)
 
 
 def render_markdown(result: EvolutionResult, settings: Settings) -> str:
@@ -523,6 +651,24 @@ def render_markdown(result: EvolutionResult, settings: Settings) -> str:
     L.append("")
     L.append(f"- generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     L.append(f"- data source: `{settings.data.source}` symbol `{settings.data.symbol}` timeframe `{settings.data.timeframe}`")
+    r = result.repro or {}
+    ds = r.get("dataset") or {}
+    L.append(f"- reproducibility id: `{r.get('repro_id') or 'N/D'}`")
+    L.append(
+        f"- code: commit `{r.get('commit') or 'N/D'}`"
+        + (f" ({r.get('branch')})" if r.get("branch") else "")
+        + (" - **worktree dirty**" if r.get("dirty") else "")
+    )
+    L.append(
+        f"- dataset: `{ds.get('short') or 'N/D'}`"
+        + (f" from `{ds.get('path')}`" if ds.get("path") else f" by {ds.get('method')} hash")
+        + (f", {ds.get('rows')} rows" if ds.get("rows") else "")
+    )
+    if r and not r.get("reproducible", False) and r.get("repro_id"):
+        L.append(
+            "  - **not reproducible from the commit alone**: the worktree had "
+            "uncommitted changes when this run started."
+        )
     L.append(f"- optimisation metric: `{result.metric}`")
     L.append(
         f"- LLM (Ollama): enabled={result.llm_enabled} available={result.llm_available}"
@@ -607,7 +753,38 @@ def render_markdown(result: EvolutionResult, settings: Settings) -> str:
     else:
         L.append(autopsy_mod.render_markdown(result.autopsy))
 
+    L.append("## Strategy versions (parent -> candidate)")
+    L.append("")
+    if not result.versions:
+        L.append("No version was recorded for this run.")
+    else:
+        L.append("| v | gen | family | origin | fitness | vs parent | outcome | change |")
+        L.append("|---|---|---|---|---|---|---|---|")
+        for v in result.versions:
+            delta = v.get("delta_fitness")
+            delta_txt = "N/D" if delta is None else f"{delta:+.3f}"
+            change = "; ".join(
+                f"{d['key']}: {_short_value(d['from'])} -> {_short_value(d['to'])}"
+                for d in (v.get("diff") or [])[:4]
+            )
+            if len(v.get("diff") or []) > 4:
+                change += f" (+{len(v['diff']) - 4} more)"
+            if not change:
+                # No parent at all is not the same as a parent it did not move away from.
+                change = (
+                    "unchanged (elite carried over)"
+                    if v.get("parent_fitness") is not None
+                    else "root genome (no parent)"
+                )
+            L.append(
+                f"| {v.get('version')} | {v.get('generation')} | {v.get('family')} | "
+                f"{v.get('origin')} | {v.get('fitness'):.3f} | {delta_txt} | "
+                f"{v.get('outcome')} | {change} |"
+            )
+        L.append("")
+
     L.append("## Notes and limits")
+
     L.append("")
     for n in result.notes:
         L.append(f"- {n}")

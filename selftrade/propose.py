@@ -51,6 +51,12 @@ class Proposal:
     rationale: str = ""
     llm_used: bool = False
     rejected_llm: bool = False
+    #: The genome this one was derived from - the elite carried over, or the current
+    #: best that a mutation/LLM proposal modified.  ``None`` for a fresh seed.  Kept on
+    #: the proposal so the recorded strategy version can diff against the *real* parent
+    #: instead of guessing one after the fact.
+    parent: dict[str, Any] | None = None
+    parent_fitness: float | None = None
 
 
 def format_ranges(family: str) -> str:
@@ -163,6 +169,7 @@ def propose_next(
                     origin="llm",
                     rationale=str(raw.get("rationale", ""))[:500],
                     llm_used=True,
+                    parent=best,
                 )
             except GenomeError:
                 # Fall through to deterministic; flag the rejection.
@@ -186,7 +193,7 @@ def _deterministic(
 ) -> Proposal:
     if best is None:
         g = sample_genome(None, rng)
-        return Proposal(genome=g, origin="seed", rationale="seed genome")
+        return Proposal(genome=g, origin="seed", rationale="seed genome", parent=None)
     g = mutate_genome(
         best,
         rng,
@@ -197,4 +204,5 @@ def _deterministic(
         genome=g,
         origin="deterministic",
         rationale=f"deterministic mutation (mode={mode})",
+        parent=best,
     )

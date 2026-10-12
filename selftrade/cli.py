@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,57 @@ def _load(args) -> Any:
 
 def _print_json(obj: Any) -> None:
     print(json.dumps(obj, indent=2, default=str))
+
+
+def _print_account_check(report: dict[str, Any]) -> None:
+    """The read-only account check, for a human: one line per step, then the detail."""
+    where = "Spot Testnet" if report["host_is_testnet"] else (
+        "PRODUCTION - real money" if report["production"] else "unknown host"
+    )
+    print(f"binance account check ({where}) - read-only: no order can come out of this command")
+    print(f"  {'host':<13} {report['base_url']}")
+    print(f"  {'mode':<13} {report['mode']}   armed={report['armed']}")
+    creds = ", ".join(
+        f"{name}={'set' if present else 'MISSING'}"
+        for name, present in report["credentials"].items()
+    )
+    print(f"  {'credentials':<13} {creds}")
+    for entry in report["steps"]:
+        flag = "ok" if entry["ok"] else "FAIL"
+        print(f"  {flag:<4} {entry['name']:<12} {entry['detail']}")
+    account = report["account"]
+    if account["balances"]:
+        print(
+            f"  {'balances':<17}{len(account['balances'])} shown of "
+            f"{account['balances_total']} non-zero asset(s), quote {account['quote_asset']}"
+        )
+        for row in account["balances"]:
+            print(f"      {row['asset']:<8} {row['free']:>18,.8f}  (locked {row['locked']:,.8f})")
+    orders = report["open_orders"]["orders"]
+    if orders:
+        print(f"  {'open orders':<17}{len(orders)}")
+        for order in orders:
+            print(
+                f"      {order['symbol']} {order['side']} {order['qty']} {order['type']} "
+                f"-> {order['status']} (id {order['id']})"
+            )
+    limits = report.get("limits") or {}
+    if limits:
+        print(
+            f"  {'rate budget':<17}{limits.get('weight_used')}/"
+            f"{limits.get('max_weight_per_min')} weight, cooldown {limits.get('cooldown_s')}s"
+        )
+    for warning in report["warnings"]:
+        print(f"  warning: {warning}")
+    for problem in report["problems"]:
+        print(f"  problem: {problem}")
+    for hint in report["hints"]:
+        print(f"  hint:    {hint}")
+    ready = report.get("trade_ready")
+    print(
+        f"  verdict: {report['verdict']}"
+        + ("" if ready is None else f"   ready to trade: {ready}")
+    )
 
 
 def _load_df(settings):
@@ -490,12 +542,92 @@ def cmd_critic(args) -> int:
     return 1
 
 
-def cmd_risk(args) -> int:
-    """Show / verify / seal the read-only risk layer."""
+def cmd_stress(args) -> int:
+    """Shake the result: resample the trades and shade the parameters."""
     settings = _load(args)
-    from . import risk_rules
+    from . import stress as stress_mod
+
+    got = _champion_or_family(settings, args)
+    if got is None:
+        return 1
+    genome, origin = got
+    df = _load_df(settings)
+    try:
+        deltas = [float(x) for x in str(args.deltas).split(",") if x.strip()]
+    except ValueError:
+        print(f"stress: --deltas must be numbers, got {args.deltas!r}", file=sys.stderr)
+        return 2
+    if not deltas:
+        deltas = [0.10, 0.25]
+
+    report = stress_mod.stress_report(
+        df,
+        genome,
+        settings,
+        window=args.window,
+        paths=args.paths,
+        seed=args.seed,
+        method=args.method,
+        block=args.block,
+        deltas=deltas,
+        include_risk=not args.no_risk,
+        origin=origin,
+    )
+    Memory(settings.memory.db).add_lesson(
+        None,
+        report["lesson"],
+        tags=["stress", f"family:{report['family']}", f"window:{args.window}"],
+    )
+
+    if args.json:
+        _print_json(report)
+        return 0
+
+    print(f"stress ({origin}) window={args.window} bars={report['bars']}")
+    for line in stress_mod.console_lines(report):
+        print(line)
+    print(f"  lesson stored in {settings.memory.db}")
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(stress_mod.render_markdown(report), encoding="utf-8")
+        print(f"  wrote {out}")
+    return 0
+
+
+def cmd_risk(args) -> int:
+    """Show / verify / seal the read-only risk layer - and measure the account against it.
+
+    ``limits`` answers, from a terminal, the same question the dashboard's *Risk limits*
+    panel answers in a browser: it reads the active paper session and reports the room
+    left under each sealed cap, through the very functions the pre-trade gate uses.  Its
+    exit status is the useful part of a risk read: **0** within the limits, **1** a limit
+    that halts trading is breached (the next order arms the stop), **2** nothing to
+    measure.  ``|| echo "risk: look at this"`` then does the right thing in a script.
+    """
+    settings = _load(args)
+    from . import notify, risk_rules
 
     action = args.action or "show"
+    if action == "limits":
+        from . import risk_report
+
+        report = risk_report.limits_report(settings)
+        if getattr(args, "json", False):
+            _print_json(report)
+        else:
+            print("selftrade risk limits (sealed caps vs the active paper session)")
+            for line in risk_report.describe(report):
+                print(line)
+            alerts = report.get("alerts") or {}
+            where = "ready" if alerts.get("ready") else str(alerts.get("reason"))
+            print(f"  alerts: {where} - `python -m selftrade notify status` says why")
+            for notice in notify.outstanding(settings, report):
+                band = f" [{notice['band']}]" if notice.get("band") else ""
+                print(f"  PENDING [{notice['kind']}]{band} {notice['headline']}")
+        if not report["ok"]:
+            return 2
+        return 1 if report["would_arm"] else 0
     if action == "show":
         print("selftrade sealed risk limits (read-only)")
         print(risk_rules.sealed_block())
@@ -517,6 +649,134 @@ def cmd_risk(args) -> int:
             return 1
         return 0
     print(f"unknown risk action: {action}", file=sys.stderr)
+    return 1
+
+
+def cmd_notify(args) -> int:
+    """The risk alert channel: who would be told, prove it, and watch for it.
+
+    The channel is opt-in (``notify.enabled`` plus two environment variables, read by
+    name) and it exists for one reason: the risk layer can stop trading on its own, and
+    a stop nobody hears about is not a stop.
+
+    * ``status`` - would I be told, and what is waiting right now (sends nothing);
+    * ``test`` - send one message, so the channel is proven before it matters;
+    * ``watch`` - the small supervisor for when nobody is at the screen: it re-reads the
+      switch and the limits every ``notify.watch_interval_s`` and sends on transitions
+      only (each halt once, each warning once per band); ``--once`` does one round;
+    * ``reset`` - forget what was announced, so the next halt is news again.
+
+    Exit status: ``watch --once`` and ``test`` return 1 when a message did not go out.
+    """
+    settings = _load(args)
+    from .notify import RiskWatch, readiness, send, sent_log
+
+    action = args.action or "status"
+    info = readiness(settings)
+    watch = RiskWatch(settings)
+
+    if action == "status":
+        snapshot = watch.current()
+        pending = watch.pending(snapshot)
+        if args.json:
+            _print_json(
+                {
+                    **info,
+                    "switch": snapshot["switch"],
+                    "pending": pending,
+                    "sent": sent_log(settings),
+                }
+            )
+            return 0
+        state = "ready" if info["ready"] else f"NOT ready: {info['reason']}"
+        print(f"risk alerts: {state} (channel: {info['channel'] or 'none'})")
+        print(f"  token env {info['token_env']} | chat env {info['chat_env']} | {info['state_file']}")
+        print(
+            f"  warns when a halting limit has <= {info['warn_below_frac']*100:.0f}% of its cap "
+            f"left, and always when one is already past its cap; "
+            f"`notify watch` every {settings.notify.watch_interval_s:g}s"
+        )
+        switch = snapshot["switch"]
+        print(
+            f"  kill switch: {'ENGAGED' if switch.get('blocked') else 'clear'}"
+            f"{' - ' + switch['reason'] if switch.get('reason') else ''}"
+        )
+        if not pending:
+            # Two different silences: an engaged stop that has already been announced is
+            # not the same state as a quiet account, and saying "no halt is engaged" over
+            # a blocked switch would be a lie.
+            if switch.get("blocked"):
+                print(
+                    "  nothing waiting to be sent: this halt has already been announced "
+                    "(see the last SENT line below)"
+                )
+            else:
+                print(
+                    "  nothing to send right now: no limit that can halt is close to - "
+                    "or past - its cap"
+                )
+        for notice in pending:
+            first = (notice["text"].splitlines() or [""])[0]
+            print(f"  PENDING [{notice['kind']}] {first}")
+            print(f"          would be {'sent' if info['ready'] else 'dropped'}: {info['hint']}")
+        # What actually went out.  Only delivered notices are recorded, so this is a
+        # record of messages, not of decisions - the last few are enough in a terminal.
+        for entry in sent_log(settings, limit=3):
+            band = f" [{entry['band']}]" if entry.get("band") else ""
+            who = "" if entry.get("automatic") is None else (
+                " (automatic)" if entry["automatic"] else " (by you)"
+            )
+            print(f"  SENT {entry.get('at')} [{entry.get('kind')}]{band}{who} {entry.get('reason')}")
+        return 0
+
+    if action == "test":
+        ok, message = send(
+            settings,
+            "selftrade test message - the alert channel works. It will carry the halt "
+            "(kill switch engaged) and the warning before it (a halting limit close to "
+            "its cap, or already past it with nothing stopped yet). "
+            "`python -m selftrade notify status` shows what is pending.",
+        )
+        print(f"notify test: {'sent' if ok else 'NOT sent'} ({message})")
+        return 0 if ok else 1
+
+    if action == "reset":
+        watch.clear()
+        print(f"notify: forgot what was announced ({info['state_file']})")
+        return 0
+
+    if action == "watch":
+        interval = float(args.interval or settings.notify.watch_interval_s)
+        if not info["ready"]:
+            print(f"notify watch: nothing would be sent - {info['reason']}", file=sys.stderr)
+            print(
+                "  set notify.enabled=true and export both variables, then `notify test`",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"watching risk every {interval:g}s (halts once each, warnings below "
+            f"{info['warn_below_frac']*100:.0f}% of a cap and always past one); "
+            "Ctrl+C stops"
+        )
+        while True:
+            result = watch.watch_once()
+            outcomes = result["outcomes"]
+            for outcome in outcomes:
+                where = "sent" if outcome["sent"] else "NOT sent"
+                print(
+                    f"  [{outcome['kind']}] {where}: {outcome['message']} "
+                    f"({outcome['reason']})",
+                    flush=True,
+                )
+            if args.once:
+                return 1 if any(not o["sent"] for o in outcomes) else 0
+            try:
+                time.sleep(max(1.0, interval))
+            except KeyboardInterrupt:
+                print("\nnotify watch: stopped")
+                return 0
+    print(f"unknown notify action: {action}", file=sys.stderr)
     return 1
 
 
@@ -719,11 +979,394 @@ def cmd_switch(args) -> int:
     return 1
 
 
+def cmd_binance(args) -> int:
+    """Binance: dry run by default, two keys to send an order.
+
+    The first key is ``binance.enabled: true``, the second is ``binance.live: true``
+    *plus* ``--live`` here.  Without both, orders are built, signed and recorded but
+    never sent, and every API answer and error lands in the ``api_calls`` table.
+
+    The host is the **Spot Testnet** unless ``binance.allow_production: true`` names
+    a funded account, and even then every order that is about to be sent passes the
+    sealed risk gate and the kill switch first.
+    """
+    settings = _load(args)
+    from . import binance as bn_mod
+    from .execution import KillSwitch, RiskGate, kill_switch_path
+
+    cfg = settings.binance
+    action = args.action
+    mem = Memory(settings.memory.db)
+
+    if action == "calls":
+        rows = mem.api_calls(limit=int(args.limit), provider="binance-testnet")
+        if args.json:
+            _print_json(rows)
+        else:
+            print(f"{len(rows)} recorded Binance call(s), newest first")
+            for row in rows:
+                tag = "dry-run" if row["dry_run"] else ("ok" if row["ok"] else "ERROR")
+                print(
+                    f"  [{tag}] {row['method']} {row['path']} "
+                    f"status={row['status']} code={row['code'] or '-'} "
+                    f"{row['msg'][:80]}"
+                )
+        return 0
+
+    if action == "check":
+        # Read-only by construction, and answered *before* the arming keys because it
+        # has to answer even when the rail is switched off - that is exactly the case
+        # worth showing.  ``key_health`` is the same report the dashboard panel renders.
+        if args.live:
+            print("binance check is read-only: --live is ignored, nothing is sent", file=sys.stderr)
+        report = bn_mod.key_health(settings, memory=mem)
+        if args.json:
+            _print_json(report)
+        else:
+            _print_account_check(report)
+        return 0 if report.get("ok") else 1
+
+    if not cfg.enabled:
+        reason = "disabled in config: binance.enabled=false, so nothing was sent"
+        info = {
+            "provider": "binance-testnet",
+            "enabled": False,
+            "base_url": cfg.base_url,
+            "host_is_testnet": "testnet" in cfg.base_url,
+            "reason": reason,
+        }
+        if args.json:
+            _print_json(info)
+        else:
+            print(f"binance: {info['reason']}")
+        return 0 if action == "doctor" else 1
+
+    # ``check`` never reaches this point: it returns above, unarmed.
+    armed = bool(args.live)
+    if args.live and not cfg.live:
+        extra = " (allow_production is on: this would be REAL money)" if cfg.allow_production else ""
+        print(
+            "binance: refusing --live: set `binance.live: true` in config.yaml too "
+            f"(two keys, like the MT5 rail){extra}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if action in ("protect", "unprotect") and not armed:
+        # Unlike ``order``, where an unarmed run is a documented dry run, touching the
+        # protection of a live position has no meaningful rehearsal: the stop either
+        # exists at the exchange or it does not.
+        print(
+            "binance: refusing to change the exchange protection without both keys: set "
+            "`binance.live: true` in config.yaml and pass --live",
+            file=sys.stderr,
+        )
+        return 1
+
+    symbols = list(cfg.allowed_symbols) or [cfg.symbol]
+    # The sealed gate and the kill switch ride with the adapter: an armed order
+    # cannot be sent without passing them (and a production host is opt-in).
+    gate = RiskGate.from_config(settings.risk_gate) if settings.risk_gate.enabled else None
+    switch = KillSwitch(kill_switch_path(settings))
+    try:
+        broker = bn_mod.BinanceTestnetBroker(
+            config=cfg, symbols=symbols, memory=mem, live=armed,
+            risk_gate=gate, kill_switch=switch,
+        )
+    except bn_mod.HostRefusedError as exc:
+        print(f"binance: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # BrokerError: missing credentials, not enabled, ...
+        print(f"binance: {exc}", file=sys.stderr)
+        return 1
+
+    if action == "doctor":
+        info = broker.describe()
+        try:
+            info["server_time_ms"] = broker.sync_time()
+            info["clock_offset_ms"] = round(broker._time_offset_ms, 1)
+        except Exception as exc:  # a doctor must report, not crash
+            info["server_time_error"] = str(exc)
+        if args.json:
+            _print_json(info)
+        else:
+            print("binance spot (testnet by default)")
+            for key in (
+                "base_url", "enabled", "armed", "mode", "host_is_testnet", "production",
+                "allow_production", "risk_gate", "kill_switch", "symbols",
+                "interval", "weight_used", "max_weight_per_min", "credentials",
+            ):
+                print(f"  {key:<18} {info.get(key)}")
+            print(f"  {'mode_note':<18} {info['mode_note']}")
+            if "server_time_ms" in info:
+                print(f"  ephemeral clock offset {info['clock_offset_ms']} ms")
+            elif "server_time_error" in info:
+                print(f"  server time unavailable: {info['server_time_error']}")
+        return 0
+
+    if action == "exchange":
+        info = broker.exchange_info(refresh=True)
+        payload = {
+            "base_url": broker.base_url,
+            "symbols": [broker.rules_for(s).as_dict() for s in symbols],
+            "rateLimits": info.get("rateLimits", []),
+        }
+        _print_json(payload)
+        return 0
+
+    if action == "bars":
+        df = broker.get_market_data(symbols[0], limit=min(int(args.limit), cfg.kline_bars))
+        payload = {
+            "symbol": symbols[0],
+            "interval": broker.interval,
+            "rows": int(len(df)),
+            "first": str(df.index[0]) if len(df) else None,
+            "last": str(df.index[-1]) if len(df) else None,
+            "last_close": float(df["close"].iloc[-1]) if len(df) else None,
+            "note": "the testnet does not document a history depth: use production "
+            "public data for research",
+        }
+        _print_json(payload)
+        return 0
+
+    if action == "account":
+        snap = broker.get_account_balance()
+        _print_json({"account": snap.as_dict(), "balances": broker.balances()})
+        return 0
+
+    if action == "positions":
+        positions = broker.get_positions()
+        payload = {
+            "positions": [p.as_dict(price=broker.last_price(p.symbol)) for p in positions],
+            "note": "Spot has balances, not positions: only configured symbols are shown",
+        }
+        _print_json(payload)
+        return 0
+
+    if action == "history":
+        _print_json(broker.get_trade_history(limit=int(args.limit)))
+        return 0
+
+    if action == "open":
+        _print_json([o.as_dict() for o in broker.open_orders()])
+        return 0
+
+    if action == "order":
+        if not args.qty:
+            print("binance order: --qty is required", file=sys.stderr)
+            return 1
+        from .execution import OrderRequest, OrderStatus, OrderType, Side
+
+        request = OrderRequest(
+            client_id=args.client_id or f"selftd-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+            symbol=args.symbol or symbols[0],
+            side=Side(args.side),
+            qty=float(args.qty),
+            type=OrderType.LIMIT if args.type == "limit" else OrderType.MARKET,
+            limit_price=args.price,
+            stop_loss_pct=args.stop_pct,
+            note=args.note or "",
+        )
+        order = broker.submit_order(request)
+        # Only a *filled* entry can be protected: a rejected or dry-run one has no
+        # position, and asking the exchange about it would be a signed call for nothing.
+        stop = None
+        if order.status is OrderStatus.FILLED:
+            stop = broker.protection_of(order.client_id)
+        payload = {
+            "mode": broker.mode,
+            "sent": order.status is not OrderStatus.DRY_RUN,
+            "order": order.as_dict(),
+            "protection": None if stop is None else stop.as_dict(),
+            "calls": broker.recorded_calls(limit=4),
+        }
+        if args.json:
+            _print_json(payload)
+        else:
+            print(f"binance {broker.mode} order {order.id} -> {order.status.value}")
+            if order.status is OrderStatus.DRY_RUN:
+                print(
+                    "  DRY RUN: the request was signed and recorded, not sent. "
+                    "Arm it with `binance.live: true` + --live."
+                )
+            if order.note:
+                print(f"  {order.note}")
+            if order.reject_reason:
+                print(f"  refused: {order.reject_reason}", file=sys.stderr)
+        if order.status is OrderStatus.REJECTED:
+            return 1
+        return 0
+
+    if action == "protect":
+        # The way back from an UNPROTECTED note: place the stop for a position that is
+        # already open, using the entry's own average fill price.
+        if not args.client_id:
+            print("binance protect: --client-id is required (the entry to protect)", file=sys.stderr)
+            return 1
+        if args.stop_pct is None:
+            print("binance protect: --stop-pct is required, e.g. --stop-pct -0.02", file=sys.stderr)
+            return 1
+        try:
+            stop = broker.protect(args.client_id, float(args.stop_pct), symbol=args.symbol)
+        except bn_mod.BrokerError as exc:
+            print(f"binance protect: {exc}", file=sys.stderr)
+            return 1
+        payload = {"entry": args.client_id, "stop": stop.as_dict()}
+        if args.json:
+            _print_json(payload)
+        else:
+            print(
+                f"binance protect: {stop.symbol} SELL {stop.type.value} {stop.qty} @ "
+                f"{stop.limit_price} -> {stop.status.value}"
+            )
+            print(f"  guarding the entry {args.client_id} (client {stop.client_id}, id {stop.id})")
+        return 0
+
+    if action == "unprotect":
+        if not args.client_id:
+            print("binance unprotect: --client-id is required (the entry to uncover)", file=sys.stderr)
+            return 1
+        try:
+            stop = broker.cancel_protection(args.client_id, symbol=args.symbol)
+        except bn_mod.BrokerError as exc:
+            print(f"binance unprotect: {exc}", file=sys.stderr)
+            return 1
+        if stop is None:
+            print(
+                f"binance unprotect: no protective stop is known for {args.client_id}",
+                file=sys.stderr,
+            )
+            return 1
+        if args.json:
+            _print_json({"entry": args.client_id, "stop": stop.as_dict()})
+        else:
+            print(
+                f"binance unprotect: {stop.symbol} {stop.status.value} "
+                f"(client {stop.client_id}, id {stop.id})"
+            )
+        return 0
+
+    if action == "cancel":
+        if not args.order_id:
+            print("binance cancel: --order-id is required", file=sys.stderr)
+            return 1
+        order = broker.cancel_order(str(args.order_id))
+        _print_json({"mode": broker.mode, "order": order.as_dict()})
+        return 0
+
+    print(f"unknown binance action: {action}", file=sys.stderr)
+    return 1
+
+
 def cmd_paper(args) -> int:
     settings = _load(args)
     from . import paper as paper_mod
 
     return paper_mod.cli(settings, args)
+
+
+def cmd_capital(args) -> int:
+    """The simulated capital account: what the agents trade, and who may credit it.
+
+    A ledger command like ``switch``: it shows the balance, and it writes only when the
+    action names an amount and a reason.  It never touches an exchange - the credit is
+    recorded locally and traded on paper (``docs/CAPITAL.md``).
+    """
+    settings = _load(args)
+    from . import capital as capital_mod
+
+    return capital_mod.cli(settings, args)
+
+
+def cmd_password(args) -> int:
+    """Read, set or forget the dashboard login password without a dashboard.
+
+    The escape hatch, and an honest one: a shell on this machine can already rewrite the
+    state directory, so asking for permission here would be theatre.  What it will *not* do
+    is guess - it prompts twice, checks the same length rule as the page, and writes only a
+    salted hash (``docs/DASHBOARD.md``).
+    """
+    import getpass
+
+    from .credentials import (
+        DEFAULT_PASSWORD,
+        CredentialError,
+        CredentialStore,
+        check_new_password,
+    )
+
+    settings = _load(args)
+    store = CredentialStore(settings.dashboard.password_file)
+    action = (getattr(args, "action", None) or "status").lower()
+    env = os.environ.get(settings.dashboard.password_env)
+
+    if action == "status":
+        state = store.describe()
+        env_wins = bool(env)
+        out = {
+            "password": state,
+            "environment_variable": settings.dashboard.password_env,
+            "environment_set": env_wins,
+            "effective_source": "environment" if env_wins else state["source"],
+            "dashboard_ready": True,
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(out, indent=2, default=str))
+            return 0
+        print(f"stored password: {state['source']}  ({state['file']})")
+        if state["source"] == "stored":
+            print(f"  changed {state['changed_at']} by {state['changed_by']} "
+                  f"({state['algorithm']}, {state['iterations']} rounds)")
+        if env_wins:
+            print(f"  but {settings.dashboard.password_env} is set: it wins, and the dashboard "
+                  f"refuses to change the stored one while it is")
+        elif state["is_default"]:
+            print(f"  the dashboard still accepts the bootstrap password ({DEFAULT_PASSWORD}): "
+                  f"change it here or under Settings")
+        if state["source"] == "corrupt":
+            print(f"  {state['note']}")
+            return 1
+        return 0
+
+    if action == "reset":
+        if not getattr(args, "confirm", False):
+            print("refusing: `password --reset` forgets the stored password and goes back to "
+                  f"the bootstrap one ({DEFAULT_PASSWORD}); add --confirm if that is what you mean",
+                  file=sys.stderr)
+            return 1
+        removed = store.reset()
+        print((f"removed {store.path}" if removed else f"nothing was stored in {store.path}")
+              + f" - the dashboard now accepts the bootstrap password ({DEFAULT_PASSWORD})")
+        if env:
+            print(f"note: {settings.dashboard.password_env} is set and still wins over it")
+        return 0
+
+    value = getattr(args, "value", None)
+    if not value:
+        try:
+            value = getpass.getpass("new dashboard password: ")
+            again = getpass.getpass("repeat it: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nno password was read: nothing changed", file=sys.stderr)
+            return 1
+        if value != again:
+            print("the two entries differ: nothing changed", file=sys.stderr)
+            return 1
+    refusal = check_new_password(value, min_length=settings.dashboard.password_min_length)
+    if refusal:
+        print(f"refusing: {refusal}", file=sys.stderr)
+        return 1
+    try:
+        store.set(value, by="cli", min_length=settings.dashboard.password_min_length)
+    except CredentialError as exc:
+        print(f"password: {exc}", file=sys.stderr)
+        return 1
+    print(f"password written to {store.path} as {store.describe()['algorithm']} "
+          f"({store.describe()['iterations']} rounds, salted) - the password itself is not stored")
+    if env:
+        print(f"warning: {settings.dashboard.password_env} is set, so it still decides the login; "
+              f"unset it for the stored password to take effect")
+    return 0
 
 
 def cmd_serve(args) -> int:
@@ -737,32 +1380,49 @@ def cmd_serve(args) -> int:
 
 
 def cmd_session(args) -> int:
+    """Start and steer the tracked loop - the same runner the dashboard's buttons use.
+
+    ``start`` really launches ``evolve --session`` (detached, logged to
+    ``state/loop.log``) instead of writing a request no one reads; ``pause``, ``resume``
+    and ``stop`` are refused when no loop is running, because a request in a file with
+    nothing on the other end is not a control (see :mod:`selftrade.loop`).
+    """
     settings = _load(args)
+    from .loop import LoopRunner
     from .session import Session
 
-    s = Session(settings.session_file)
+    runner = LoopRunner(settings, config_path=getattr(args, "config", None))
     action = args.action
     if action == "status":
-        print(json.dumps(s.status(), indent=2, default=str))
+        state = Session(settings.session_file).status()
+        state["loop"] = runner.status()
+        print(json.dumps(state, indent=2, default=str))
+        loop = state["loop"]
+        print(
+            f"loop: {'running pid ' + str(loop['pid']) if loop['running'] else 'not running'}"
+            f" | log {loop['log']}",
+            file=sys.stderr,
+        )
         return 0
     if action == "start":
-        s.request_start(generations=args.generations or settings.evolution.generations)
-        print(f"start requested in {settings.session_file}")
+        code, out = runner.start(args.generations or settings.evolution.generations)
+        if code != 200:
+            print(f"could not start the loop: {out.get('error')}", file=sys.stderr)
+            return 1
+        loop = out["loop"]
+        print(
+            f"loop started: pid {loop['pid']} | {loop['generations_total']} generations "
+            f"| logging to {loop['log']}"
+        )
+        print(f"  {out['command']}")
+        print("  `session pause|resume|stop` steer it, `session status` reads it")
         return 0
-    if action == "pause":
-        s.request("pause")
-        print("pause requested (takes effect at the next generation boundary)")
-        return 0
-    if action == "resume":
-        s.request("resume")
-        print("resume requested")
-        return 0
-    if action == "stop":
-        s.request("stop")
-        print("stop requested (the run finishes the generation then writes the report)")
-        return 0
-    print(f"unknown session action: {action}", file=sys.stderr)
-    return 1
+    code, out = runner.request(action)
+    if code != 200:
+        print(out.get("error") or f"{action} refused", file=sys.stderr)
+        return 1
+    print(out.get("note") or f"{action} requested")
+    return 0
 
 
 def cmd_rea(args) -> int:
@@ -935,9 +1595,42 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("--out")
         sp.set_defaults(func=func)
 
+    sp = sub.add_parser(
+        "stress",
+        help="Monte Carlo over the trade sequence + parameter sensitivity",
+    )
+    sp.add_argument("--champion", action="store_true")
+    sp.add_argument("--family")
+    sp.add_argument("--window", choices=["holdout", "full", "recent"], default="holdout")
+    sp.add_argument("--paths", type=int, default=2000)
+    sp.add_argument("--seed", type=int, default=7)
+    sp.add_argument("--method", choices=["bootstrap", "shuffle", "block"], default="bootstrap")
+    sp.add_argument("--block", type=int, default=5)
+    sp.add_argument(
+        "--deltas",
+        default="0.10,0.25",
+        help="comma-separated relative perturbations of the parameters",
+    )
+    sp.add_argument("--no-risk", action="store_true", help="skip the risk-knob perturbations")
+    sp.add_argument("--out")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_stress)
+
     sp = sub.add_parser("risk", help="sealed, read-only risk limits")
-    sp.add_argument("action", nargs="?", choices=["show", "verify", "seal"], default="show")
+    sp.add_argument(
+        "action", nargs="?", choices=["show", "verify", "seal", "limits"], default="show"
+    )
+    sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_risk)
+
+    sp = sub.add_parser("notify", help="risk alerts: the halt, and the warning before it")
+    sp.add_argument(
+        "action", nargs="?", choices=["status", "test", "watch", "reset"], default="status"
+    )
+    sp.add_argument("--interval", type=float, help="seconds between `watch` rounds")
+    sp.add_argument("--once", action="store_true", help="`watch`: one round, then exit")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_notify)
 
     sp = sub.add_parser("broker", help="simulated broker: orders, fills, stops, ledger")
     sp.add_argument("--symbol")
@@ -946,6 +1639,35 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cash", type=float, default=10_000.0)
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_broker)
+
+    sp = sub.add_parser(
+        "binance",
+        help="Binance Spot Testnet adapter (dry run by default); `check` probes a key read-only",
+    )
+    sp.add_argument(
+        "action",
+        choices=["check", "doctor", "account", "positions", "bars", "exchange", "history",
+                 "open", "order", "protect", "unprotect", "cancel", "calls"],
+    )
+    sp.add_argument("--symbol")
+    sp.add_argument("--side", choices=["buy", "sell"], default="buy")
+    sp.add_argument("--qty", type=float)
+    sp.add_argument("--type", choices=["market", "limit"], default="market")
+    sp.add_argument("--price", type=float)
+    sp.add_argument("--client-id", dest="client_id")
+    sp.add_argument("--order-id", dest="order_id")
+    sp.add_argument("--note", default="")
+    sp.add_argument(
+        "--stop-pct",
+        dest="stop_pct",
+        type=float,
+        help="protective stop as a fraction of the entry (negative, e.g. -0.02): the rail "
+        "places a resting SELL STOP_LOSS_LIMIT as soon as the entry fills",
+    )
+    sp.add_argument("--limit", type=int, default=50)
+    sp.add_argument("--live", action="store_true", help="send it (binance.live must also be true)")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_binance)
 
     sp = sub.add_parser("switch", help="kill switch: stop new orders right now")
     sp.add_argument("action", nargs="?", choices=["show", "arm", "reset"], default="show")
@@ -960,8 +1682,57 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--status", action="store_true")
     sp.add_argument("--session", type=int, dest="session_id")
     sp.add_argument("--champion", action="store_true")
+    sp.add_argument(
+        "--fund",
+        type=float,
+        help="allocate this much from the capital account into the new/active session "
+        "(refused, with nothing created, when the free balance is short)",
+    )
+    sp.add_argument(
+        "--release",
+        action="store_true",
+        help="return the session's allocated capital to the free balance (unfunded "
+        "sessions only: a session that traded keeps its capital until an explicit reset)",
+    )
+    sp.add_argument("--reason", default="", help="why the capital moved (kept in the ledger)")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_paper)
+
+    sp = sub.add_parser(
+        "capital", help="simulated capital account: credit money the agents can work"
+    )
+    sp.add_argument(
+        "action",
+        nargs="?",
+        choices=["status", "deposit", "withdraw", "allocate", "release", "ledger", "policy"],
+        default="status",
+    )
+    sp.add_argument("amount", nargs="?", type=float)
+    sp.add_argument("--reason", default="")
+    sp.add_argument("--currency", help="currency of this credit (default: funding.currency)")
+    sp.add_argument("--session", type=int, dest="session_id")
+    sp.add_argument("--limit", type=int, default=50)
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_capital)
+
+    sp = sub.add_parser(
+        "password",
+        help="the dashboard login password (a salted hash; the escape hatch for a forgotten one)",
+    )
+    sp.add_argument("action", nargs="?", choices=["status", "set", "reset"], default="status")
+    sp.add_argument(
+        "--value",
+        help="the new password; omit it to be prompted (the safer path: an argument is kept "
+        "in the shell history and in this machine's process list)",
+    )
+    sp.add_argument(
+        "--confirm",
+        action="store_true",
+        help="reset: fall back to the bootstrap password (``0000``); required, it changes "
+        "how anyone signs in",
+    )
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_password)
 
     sp = sub.add_parser("serve", help="local dashboard")
     sp.add_argument("--host")

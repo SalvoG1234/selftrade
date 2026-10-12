@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -9,7 +10,7 @@ from selftrade.agent import Evolver
 from selftrade.config import load_settings
 from selftrade.data import make_synthetic
 from selftrade.memory import Memory
-from selftrade.session import Session
+from selftrade.session import LOCK_STALE_S, Session
 
 
 def wait_until(pred, timeout=30.0, interval=0.02):
@@ -168,3 +169,83 @@ def test_evolver_stop_writes_report(tmp_path):
     assert res.stopped is True
     assert res.report_md and Path(res.report_md).exists()
     assert session.read()["status"] == "stopped"
+
+
+def test_a_stop_survives_the_loops_own_heartbeat_write(tmp_path):
+    """The loop and the operator are two writers on one file.
+
+    Both do read-modify-write, so a heartbeat write built from a snapshot taken before the
+    operator's ``stop`` arrived used to erase it: the dashboard said "stop requested" and
+    the run kept going.  The lock is what makes the two writes indivisible.
+    """
+    s = Session(tmp_path / "s.json", poll_interval=0.01)
+    s.request_start(50, pid=os.getpid())
+    writing = threading.Event()
+    beats = [0]
+
+    def heartbeat():
+        while not writing.is_set():
+            s.update(lambda st: st.update({"heartbeat": time.time()}) or st)
+            beats[0] += 1
+            time.sleep(0.002)  # the loop's cadence: once a generation, not a spin
+
+    t = threading.Thread(target=heartbeat)
+    t.start()
+    try:
+        lost = []
+        for n in range(25):
+            s.request("stop")
+            if s.read()["pending"] != "stop":
+                lost.append(n)
+    finally:
+        writing.set()
+        t.join(timeout=5)
+    assert beats[0] > 10, "the heartbeat writer never ran - this test would prove nothing"
+    assert lost == [], f"{len(lost)} stop request(s) were overwritten by the loop's own write"
+
+
+def test_a_lock_left_behind_by_a_dead_process_is_broken(tmp_path):
+    """A run must not be frozen out by the last process that died holding the lock."""
+    s = Session(tmp_path / "s.json")
+    s.lock_path.parent.mkdir(parents=True, exist_ok=True)
+    s.lock_path.write_text("", encoding="utf-8")
+    stale = time.time() - (LOCK_STALE_S + 5)
+    os.utime(s.lock_path, (stale, stale))
+    s.mark_running(generations=1)
+    assert s.read()["status"] == "running"
+    assert not s.lock_path.exists(), "the lock must be released, not left for the next writer"
+
+
+def test_a_lock_held_elsewhere_delays_a_write_but_never_wedges_it(tmp_path, monkeypatch):
+    """A live holder is waited for; a holder that never lets go is written past."""
+    monkeypatch.setattr("selftrade.session.LOCK_TIMEOUT_S", 0.2)
+    s = Session(tmp_path / "s.json")
+    s.lock_path.parent.mkdir(parents=True, exist_ok=True)
+    s.lock_path.write_text("", encoding="utf-8")  # fresh, so not stale: honoured until the timeout
+    started = time.monotonic()
+    s.request("stop")
+    assert time.monotonic() - started >= 0.1, "a held lock must be waited for, not run through"
+    assert s.read()["pending"] == "stop", "the request must land anyway - a control never hangs"
+
+
+def test_a_stop_written_right_after_a_resume_is_still_honoured(tmp_path):
+    """The pause -> resume -> stop handoff, which is where the stop used to be lost.
+
+    The resumed loop writes its status and heartbeat at that instant, and the operator
+    writes ``stop`` at the same one; the two must not be allowed to interleave.
+    """
+    s = Session(tmp_path / "s.json", poll_interval=0.01)
+    s.mark_running(generations=5)
+    s.request("pause")
+    results = []
+    t = threading.Thread(target=lambda: results.append(s.checkpoint(0, 5)))
+    t.start()
+    assert wait_until(lambda: s.read()["status"] == "paused", timeout=5)
+    s.request("resume")
+    assert wait_until(lambda: s.read()["status"] == "running", timeout=5)
+    s.request("stop")
+    t.join(timeout=5)
+    assert not t.is_alive()
+    assert results == ["continue"]
+    assert s.checkpoint(1, 5) == "stop"
+    assert s.read()["status"] == "stopped"

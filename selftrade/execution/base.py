@@ -53,6 +53,14 @@ class Side(str, Enum):
 class OrderType(str, Enum):
     MARKET = "market"
     LIMIT = "limit"
+    STOP_LOSS = "stop_loss"
+    STOP_LOSS_LIMIT = "stop_loss_limit"
+    """A *resting* conditional order (Binance ``STOP_LOSS_LIMIT``): it sits at the
+    exchange and becomes a limit order when ``stopPrice`` is reached.  Nothing in
+    the simulator creates one; the Binance rail places one as the protective stop
+    of a filled entry, and the type says so instead of pretending to be a limit.
+    ``STOP_LOSS`` is the market flavour, recognised so an order placed by hand at
+    Binance is not mislabelled - no code here creates one."""
 
 
 class OrderStatus(str, Enum):
@@ -60,6 +68,7 @@ class OrderStatus(str, Enum):
     FILLED = "filled"
     CANCELED = "canceled"
     REJECTED = "rejected"
+    DRY_RUN = "dry_run"
     """Built, signed and recorded, but deliberately not sent.  Not a fill, not a
     refusal: the caller can tell the difference without reading a log line."""
 
@@ -74,18 +83,39 @@ def _iso(ts: Any) -> str | None:
 
 @dataclass
 class OrderRequest:
-    """What the caller wants.  ``client_id`` makes retries idempotent."""
+    """What the caller wants.  ``client_id`` makes retries idempotent.
+
+    ``qty`` is a size in the base asset.  ``quote_qty`` is the alternative a
+    strategy that thinks in equity fractions needs: "spend this much of the
+    account", which the adapter turns into a size at the **fill** price.  Give one
+    or the other, never both.
+
+    ``stop_loss_pct`` / ``take_profit_pct`` / ``trailing_pct`` describe the exit
+    plan for the position the order opens: the adapter arms them on the fill, with
+    the same precedence as the research engine (stop before target, gaps at the
+    open, trailing measured from the best price seen).
+    """
 
     client_id: str
     symbol: str
     side: Side
-    qty: float
+    qty: float = 0.0
     type: OrderType = OrderType.MARKET
     limit_price: float | None = None
     stop_loss_pct: float | None = None
+    take_profit_pct: float | None = None
+    trailing_pct: float | None = None
+    quote_qty: float | None = None
     note: str = ""
 
+    @property
+    def sized_at_fill(self) -> bool:
+        """True when ``quote_qty`` decides the size, at the fill price."""
+        return self.quote_qty is not None and abs(float(self.quote_qty)) > 0
+
     def notional(self, price: float) -> float:
+        if self.sized_at_fill:
+            return abs(float(self.quote_qty))
         return abs(float(self.qty)) * abs(float(price))
 
 
@@ -100,6 +130,7 @@ class Order:
     status: OrderStatus
     created_at: str
     limit_price: float | None = None
+    quote_qty: float | None = None
     filled_qty: float = 0.0
     avg_price: float | None = None
     updated_at: str | None = None
@@ -120,6 +151,7 @@ class Order:
             "type": self.type.value,
             "status": self.status.value,
             "limit_price": self.limit_price,
+            "quote_qty": self.quote_qty,
             "filled_qty": float(self.filled_qty),
             "avg_price": self.avg_price,
             "created_at": self.created_at,
@@ -138,7 +170,7 @@ class Fill:
     qty: float
     price: float
     fee: float
-    reason: str = "signal"
+    reason: str = "signal"  # signal | stop | target
 
     def as_dict(self) -> dict[str, Any]:
         return {

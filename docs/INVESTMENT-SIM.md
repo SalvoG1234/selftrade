@@ -104,7 +104,8 @@ in-sample one.
   cross-asset diversification, no re-selection inside the window.
 * Costs are a flat bps model; the backtester does not model funding, borrow, or
   market impact, and it fills at the next open (no order-book simulation).
-* `paper` (forward, bar by bar, restartable) remains the next step after this
-  simulation; `invest` is a re-run over history, not a live record.
+* `paper` (forward, restartable, and now order by order through the pre-trade gate -
+  see `docs/PAPER-TRADING.md`) is that next step and exists; `invest` is a re-run
+  over history, not a live record.
 * Past performance on historical data is not a forecast. Nothing here is
   financial advice.

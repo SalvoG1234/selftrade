@@ -121,6 +121,55 @@ class MT5Config:
     allowed_symbols: list[str] = field(default_factory=list)
 
 
+#: Binance hosts that hold real money.  Reachable only with
+#: ``binance.allow_production: true`` and, for orders, the two-key arming gate.
+BINANCE_PRODUCTION_HOSTS = (
+    "api.binance.com",
+    "api1.binance.com",
+    "api2.binance.com",
+    "api3.binance.com",
+    "api4.binance.com",
+    "api-gcp.binance.com",
+    "api.us.binance.com",
+    "api.binance.us",
+    "data-api.binance.vision",
+)
+
+
+@dataclass
+class BinanceConfig:
+    """The Binance rail.  **Testnet by default**; a production host is opt-in.
+
+    ``live`` is the first key of the two-key gate (``mt5.py`` uses the same
+    pattern): nothing is sent to the exchange unless ``enabled`` and ``live`` are
+    both true *and* the CLI passes ``--live``.  Credentials are read from the
+    environment variables named here - never from this file, never from the code.
+    """
+
+    enabled: bool = False
+    live: bool = False
+    """ARMS order sending (the second of the two keys, with ``--live``)."""
+
+    allow_production: bool = False
+    """Opt in to a **funded** Binance host.  Off by default: a production
+    ``base_url`` without this flag is a config error.  This flag on its own does
+    not arm anything - ``enabled`` + ``live`` + ``--live`` still gate every order,
+    and every order still passes the sealed risk gate and the kill switch."""
+
+    base_url: str = "https://testnet.binance.vision/api"
+    api_key_env: str = "SELFTD_BINANCE_API_KEY"
+    api_secret_env: str = "SELFTD_BINANCE_API_SECRET"
+    symbol: str = "BTC/USDT"
+    allowed_symbols: list[str] = field(default_factory=list)
+    quote_asset: str = "USDT"
+    symbol_suffix: str = ""
+    interval: str = "1h"
+    kline_bars: int = 500
+    recv_window: int = 5000
+    timeout: float = 15.0
+    max_weight_per_min: int = 1200
+
+
 @dataclass
 class RiskGateConfig:
     """The pre-trade gate's *own* thresholds.
@@ -156,10 +205,105 @@ class PaperConfig:
 
 
 @dataclass
+class FundingConfig:
+    """The **simulated** capital account: how much may be credited, and in what currency.
+
+    Operator policy, not part of the sealed risk layer.  The sealed caps limit what a
+    strategy may risk with whatever capital it holds (5% per position, 15% drawdown)
+    and they still bind on funded capital; this section only stops a typo - an extra
+    zero - from funding a fantasy account.  What no *agent* can do is stated where it
+    is enforced, in :mod:`selftrade.capital`: the research loop, the proposer and the
+    evaluators have no code path that credits anything.
+    """
+
+    enabled: bool = True
+    currency: str = "USDT"
+    """The unit every credit is recorded in.  No conversion is done or implied."""
+
+    max_deposit: float = 100_000.0
+    """Largest single credit accepted.  ``0`` or negative refuses every credit."""
+
+    max_total_capital: float = 1_000_000.0
+    """Ceiling on the total credited (deposits minus withdrawals), ever."""
+
+    allow_withdrawal: bool = True
+    """Whether the operator may take capital back out of the account."""
+
+
+@dataclass
 class DashboardConfig:
+    """The local dashboard, now with a login and a live Binance chart.
+
+    ``auth`` is on by default and is **required** for any non-loopback bind:
+    opening the dashboard on the LAN exposes the loop controls, so a bind that is
+    not loopback while ``auth`` is false is refused (in the config and again in
+    ``dashboard.make_server``).
+
+    The password itself is never in this file.  Two places can hold it, and the
+    environment wins:
+
+    * ``password_env`` - the *name* of an environment variable.  When it is set, it is
+      the password, and the Settings page refuses to change it (writing a hash nothing
+      would read is worse than saying no);
+    * ``password_file`` - where a password set from the dashboard is stored, as a salted
+      PBKDF2 hash and nothing else.  Until someone sets one, the login accepts the
+      bootstrap password ``0000`` and the dashboard says so (see
+      :mod:`selftrade.credentials`).
+    """
+
     host: str = "127.0.0.1"
     port: int = 8787
     auto_refresh_s: int = 15
+    auth: bool = True
+    """Require a password login.  Mandatory for a non-loopback bind."""
+
+    password_env: str = "SELFTD_DASHBOARD_PASSWORD"
+    """Name of the environment variable holding the password (never the value).
+
+    When it is set it *overrides* the stored password, because a machine that provisions
+    dashboards from the environment must not be surprised by a change made in a browser.
+    """
+
+    password_file: str = "state/dashboard_auth.json"
+    """Where a password set from the dashboard (or ``password --set``) is stored.
+
+    One salted PBKDF2 hash, written atomically and owner-only.  Deleting it goes back to
+    the bootstrap password; `python -m selftrade password --status` says which one is in
+    force.
+    """
+
+    password_min_length: int = 4
+    """Shortest password the dashboard and the CLI accept (the bootstrap is exactly this)."""
+
+    session_ttl_s: int = 86400
+    """How long a signed login cookie stays valid."""
+
+    market_symbol: str = "BTC/USDT"
+    """Default symbol of the live chart (Binance public data, no keys)."""
+
+    market_interval: str = "1m"
+    """Default candle interval of the live chart."""
+
+    market_bars: int = 180
+    """Candles returned per refresh (one public request, max 1000)."""
+
+    market_refresh_s: float = 3.0
+    """How often the browser redraws the live chart."""
+
+    key_refresh_s: float = 60.0
+    """How often the Binance key panel re-probes the account, read-only.
+
+    The panel runs the same probe as ``binance check``: one signed ``GET`` per
+    refresh, never a POST.  One minute is the floor because every probe is a real
+    request against the exchange's rate budget; the endpoint also caches for this
+    long, so a roomful of tabs still costs one probe per window.
+    """
+
+
+def is_loopback(host: str) -> bool:
+    """True for a host that is only reachable from this machine."""
+    h = (host or "").strip().lower()
+    return h in ("127.0.0.1", "localhost", "::1", "[::1]") or h.startswith("127.")
 
 
 @dataclass
@@ -172,6 +316,19 @@ class NotifyConfig:
     enabled: bool = False
     telegram_token_env: str = "SELFTD_TELEGRAM_TOKEN"
     telegram_chat_id_env: str = "SELFTD_TELEGRAM_CHAT_ID"
+    warn_below_frac: float = 0.25
+    """Share of a halting limit's cap that may be left before a warning is sent.
+
+    A halt is announced when it happens; this is the early-warning half: the drawdown or
+    daily-loss limit standing inside this share of its cap is worth one message, because
+    that is where something can still be done.  ``0`` turns this band off - but **not**
+    the other one: a limit already *past* its cap is a breach, not a threshold, and it
+    is always announced (the gate only sees a breach when it checks an order, which may
+    be never).  Halts are announced while ``enabled`` is true, whatever this is.
+    """
+
+    watch_interval_s: float = 30.0
+    """How often ``notify watch`` re-reads the switch and the limits, in seconds."""
 
 
 @dataclass
@@ -186,7 +343,9 @@ class Settings:
     rea: ReaConfig = field(default_factory=ReaConfig)
     mt5: MT5Config = field(default_factory=MT5Config)
     risk_gate: RiskGateConfig = field(default_factory=RiskGateConfig)
+    binance: BinanceConfig = field(default_factory=BinanceConfig)
     paper: PaperConfig = field(default_factory=PaperConfig)
+    funding: FundingConfig = field(default_factory=FundingConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     notify: NotifyConfig = field(default_factory=NotifyConfig)
@@ -368,10 +527,31 @@ def _validate_ranges(settings: Settings) -> None:
         raise ConfigError("evolution.mutation_rate must be in [0, 1]")
     if not 0.0 < settings.backtest.position_size <= 1.0:
         raise ConfigError("backtest.position_size must be in (0, 1]")
-    if settings.dashboard.host not in ("127.0.0.1", "localhost", "::1"):
-        raise ConfigError("dashboard.host must be loopback (127.0.0.1 / localhost / ::1)")
+    dash = settings.dashboard
+    if not is_loopback(dash.host) and not dash.auth:
+        raise ConfigError(
+            f"dashboard.host is {dash.host!r} (not loopback) but dashboard.auth is "
+            "false. Opening the dashboard beyond this machine requires the login: "
+            "set dashboard.auth=true (or bind 127.0.0.1)."
+        )
+    if dash.session_ttl_s < 60:
+        raise ConfigError("dashboard.session_ttl_s must be >= 60")
+    if not 10 <= dash.market_bars <= 1000:
+        raise ConfigError("dashboard.market_bars must be in [10, 1000]")
+    if dash.market_refresh_s < 0.5:
+        raise ConfigError("dashboard.market_refresh_s must be >= 0.5")
+    if dash.key_refresh_s < 5:
+        raise ConfigError(
+            "dashboard.key_refresh_s must be >= 5 (every probe is a signed request "
+            "against the exchange's rate budget)"
+        )
     if settings.paper.step_bars < 1:
         raise ConfigError("paper.step_bars must be >= 1")
+    nt = settings.notify
+    if not 0.0 <= nt.warn_below_frac < 1.0:
+        raise ConfigError("notify.warn_below_frac must be in [0, 1)")
+    if nt.watch_interval_s < 1.0:
+        raise ConfigError("notify.watch_interval_s must be >= 1 (seconds)")
     rg = settings.risk_gate
     if not 0.0 < rg.risk_pct <= 1.0:
         raise ConfigError("risk_gate.risk_pct must be in (0, 1]")
@@ -383,6 +563,30 @@ def _validate_ranges(settings: Settings) -> None:
         raise ConfigError("risk_gate.min_seconds_between_orders must be >= 0")
     if rg.min_notional < 0:
         raise ConfigError("risk_gate.min_notional must be >= 0")
+    bn = settings.binance
+    host = bn.base_url.split("//", 1)[-1].split("/", 1)[0].lower()
+    if "testnet" not in host:
+        if not bn.allow_production:
+            raise ConfigError(
+                f"binance.base_url must point at a testnet host, got {bn.base_url!r}. "
+                "This project ships no production trading rail by default; a funded "
+                "account is opt-in with binance.allow_production=true, knowingly."
+            )
+        if host not in BINANCE_PRODUCTION_HOSTS:
+            raise ConfigError(
+                f"binance.allow_production is true but {host!r} is not a known Binance "
+                f"host ({', '.join(BINANCE_PRODUCTION_HOSTS)}); refusing a look-alike "
+                "host that could be pointed anywhere."
+            )
+    if not 0 < bn.recv_window <= 60000:
+        raise ConfigError("binance.recv_window must be in (0, 60000] milliseconds")
+    if bn.timeout <= 0:
+        raise ConfigError("binance.timeout must be > 0")
+    if bn.max_weight_per_min < 1:
+        raise ConfigError("binance.max_weight_per_min must be >= 1")
+    if not 0 < bn.kline_bars <= 1000:
+        raise ConfigError("binance.kline_bars must be in (0, 1000]")
+
 
 def apply_override(settings: Settings, override: str) -> None:
     """Apply a single ``section.key=value`` (or ``top=value``) override in place."""

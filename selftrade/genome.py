@@ -279,6 +279,33 @@ def complexity(genome: dict[str, Any]) -> int:
     return count
 
 
+def genome_diff(parent: Any, child: Any) -> list[dict[str, Any]]:
+    """Every value that changed from ``parent`` to ``child``, in a stable order.
+
+    The single diff primitive behind strategy versions: the search records it when a
+    candidate is evaluated, so "what changed" is a stored fact rather than something
+    reconstructed later from a report.  Returns ``[]`` when a side is unusable - a
+    missing diff must never break a run or a panel.
+    """
+    try:
+        c = validate_genome(child)
+        p = validate_genome(parent)
+    except (GenomeError, TypeError, ValueError):
+        return []
+    changes: list[dict[str, Any]] = []
+    if c["family"] != p["family"]:
+        changes.append({"key": "family", "group": "strategy", "from": p["family"], "to": c["family"]})
+    for key, value in c["params"].items():
+        old = p["params"].get(key)
+        if old != value:
+            changes.append({"key": key, "group": "params", "from": old, "to": value})
+    for key, value in c["risk"].items():
+        old = p["risk"].get(key)
+        if old != value:
+            changes.append({"key": "risk." + key, "group": "risk", "from": old, "to": value})
+    return changes
+
+
 def genome_key(genome: dict[str, Any]) -> str:
     """Stable hash of a canonical genome (dedup / reproducibility)."""
     g = validate_genome(genome)

@@ -188,10 +188,12 @@ def verify_seal(settings: Any = None, limits: RiskLimits = LIMITS) -> dict[str, 
 
 
 def effective_position_size(settings: Any, limits: RiskLimits = LIMITS) -> float:
-    """Live sizing: the smaller of the configured size and the sealed cap.
+    """Deployment sizing: the smaller of the configured size and the sealed cap.
 
-    Used by the live rail.  The research backtester keeps the configured size so
-    that exploration, paper and backtest stay comparable by construction.
+    Used by the paper session and the live rail, in that order of importance: an
+    order above the cap can only ever be refused by the gate, so a session is sized
+    to pass it.  The research backtester keeps the configured size, because
+    exploration has to be free; the two rails then differ in exactly this number.
     """
     configured = float(getattr(settings.backtest, "position_size", 1.0))
     return max(0.0, min(configured, limits.MAX_POSITION_PCT / 100.0))

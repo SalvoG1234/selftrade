@@ -9,6 +9,13 @@ block the order, record why and raise an alert - which is exactly what
 
 The portfolio-wide limits come from :mod:`selftrade.risk_rules`, the sealed layer:
 they are not configurable here, and there is no flag to bypass them.
+
+One distinction runs through the checks: an order that **opens or increases**
+exposure is new risk, while an order that closes or trims a position is not.  The
+exposure cap, the leverage check and the stop requirement therefore look at the
+exposure the order *adds* and at the exposure the book is left with - otherwise the
+same per-position cap that lets a 5% entry through would block the very exit that
+flattens it.
 """
 
 from __future__ import annotations
@@ -17,9 +24,19 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
 from ..risk_rules import LIMITS, RiskLimits
-from .base import AccountSnapshot, OrderRequest, Position
+from .base import AccountSnapshot, OrderRequest, Position, Side
 
 ALERT_KIND = "order_blocked"
+
+#: What a failed check does.  The account limits are the ones that *stop* the system:
+#: the broker arms the kill switch when a :class:`Decision` carries an alert.
+ARMS_SWITCH = "arms the kill switch"
+REFUSES_ORDER = "refuses the order"
+
+#: Where a limit comes from.  The exposure and stop caps are frozen in
+#: :mod:`selftrade.risk_rules`; the leverage cap is this layer's own setting.
+SEALED = "sealed"
+CONFIGURED = "config"
 
 
 @dataclass
@@ -51,6 +68,161 @@ def _check(
         "detail": detail,
         "blocking": bool(blocking),
     }
+
+
+def _limit(
+    name: str,
+    value: float,
+    limit: float,
+    ok: bool,
+    detail: str,
+    *,
+    source: str,
+    effect: str,
+    reason: str,
+    alert: str | None = None,
+    headroom: float | None = None,
+    unit: str = "pp",
+) -> dict[str, Any]:
+    """One limit check, carrying what the *caller* needs as well as the numbers.
+
+    ``reason``/``alert`` are the exact strings :meth:`RiskGate.check` appends to a
+    refused :class:`Decision`; ``headroom``/``source``/``effect`` are what the
+    dashboard's risk panel renders.  They travel in the same dict on purpose: a panel
+    that re-derived the numbers could disagree with the gate, and an operator reading
+    a limit that the gate does not enforce is being told fiction.
+
+    ``headroom`` is the room left before the check fails, in the check's own unit
+    (``unit``: percentage points of equity for the percentage limits, x-equity for
+    leverage).  It is derived from the cap unless a check measures its own room
+    (today's P&L can only *add* room, so it cannot be read as ``limit - |p&l|``).
+    """
+    entry = _check(name, value, limit, ok, detail)
+    room = float(limit) - float(value) if headroom is None else float(headroom)
+    entry.update(
+        {
+            "headroom": room,
+            # Comparable across limits with different units and different sizes: the
+            # share of the cap that is still unused.  Above 1.0 is possible (a
+            # profitable day pushes the daily room past its own cap) and means the
+            # same thing: nothing close to the limit is in the way.
+            "headroom_frac": (room / float(limit)) if limit else 0.0,
+            "unit": unit,
+            "source": source,
+            "effect": effect,
+            # An alert is precisely what arms the stop, so the panel can say which
+            # limits can halt trading without re-deciding it.
+            "arms": alert is not None,
+            "reason": reason,
+            "alert": alert,
+        }
+    )
+    return entry
+
+
+def account_limits(limits: RiskLimits, account: AccountSnapshot) -> list[dict[str, Any]]:
+    """The two account-level limits, measured: drawdown and today's P&L.
+
+    These are the checks that can *halt* trading rather than refuse one order: a
+    breach is what puts an alert on the decision, and the broker arms the kill switch
+    when it sees one.  Both come from the sealed layer, so neither the config nor the
+    model can move them.
+
+    The equities and the peak are the caller's business: the account snapshot carries
+    them already measured, and the gate and the dashboard panel hand it in the same
+    shape, so the two cannot drift apart.
+    """
+    dd_pct = float(account.drawdown) * 100.0
+    dd_ok = dd_pct <= limits.MAX_DRAWDOWN_PCT + 1e-9
+    day_pnl_pct = float(account.day_pnl_pct)
+    day_pct = abs(day_pnl_pct) * 100.0
+    day_ok = day_pnl_pct >= -limits.MAX_DAILY_LOSS_PCT / 100.0 - 1e-12
+    return [
+        _limit(
+            "max_drawdown",
+            dd_pct,
+            limits.MAX_DRAWDOWN_PCT,
+            dd_ok,
+            f"account drawdown {dd_pct:.2f}% against the sealed "
+            f"{limits.MAX_DRAWDOWN_PCT:.1f}%",
+            source=SEALED,
+            effect=ARMS_SWITCH,
+            reason=(
+                f"account drawdown {dd_pct:.2f}% breaks the sealed "
+                f"{limits.MAX_DRAWDOWN_PCT:.1f}% limit: trading halts"
+            ),
+            alert="drawdown limit breached: new orders halted",
+        ),
+        _limit(
+            "max_daily_loss",
+            day_pct,
+            limits.MAX_DAILY_LOSS_PCT,
+            day_ok,
+            f"today's P&L is {day_pnl_pct * 100:+.2f}% against the sealed "
+            f"-{limits.MAX_DAILY_LOSS_PCT:.1f}% daily halt",
+            source=SEALED,
+            effect=ARMS_SWITCH,
+            reason=(
+                f"today's loss {day_pnl_pct * 100:.2f}% is past the sealed "
+                f"-{limits.MAX_DAILY_LOSS_PCT:.1f}% daily halt"
+            ),
+            alert="daily loss limit breached: new orders halted",
+            # Room measured from the signed P&L: a profitable day adds room instead
+            # of eating the cap from the wrong side.
+            headroom=limits.MAX_DAILY_LOSS_PCT + day_pnl_pct * 100.0,
+        ),
+    ]
+
+
+def exposure_limits(
+    limits: RiskLimits,
+    equity: float,
+    *,
+    symbol: str,
+    symbol_notional: float,
+    other_notional: float = 0.0,
+    max_leverage: float = 1.0,
+    hypothetical: bool = False,
+) -> list[dict[str, Any]]:
+    """The per-position and gross-exposure caps for a book.
+
+    ``hypothetical=True`` describes the book **after** the order the gate is looking
+    at ("would be"), ``False`` the book as it stands ("is"), which is what the panel
+    asks for.  Neither cap halts trading: they refuse the order that would break them.
+    """
+    equity = max(1e-9, float(equity))
+    verb = "would be" if hypothetical else "is"
+    symbol_pct = abs(float(symbol_notional)) / equity * 100.0
+    position_ok = symbol_pct <= limits.MAX_POSITION_PCT + 1e-9
+    leverage = (abs(float(other_notional)) + abs(float(symbol_notional))) / equity
+    leverage_ok = leverage <= float(max_leverage) + 1e-9
+    return [
+        _limit(
+            "position_pct",
+            symbol_pct,
+            limits.MAX_POSITION_PCT,
+            position_ok,
+            f"{symbol} exposure {verb} {symbol_pct:.2f}% of equity against the sealed "
+            f"{limits.MAX_POSITION_PCT:.1f}%",
+            source=SEALED,
+            effect=REFUSES_ORDER,
+            reason=(
+                f"{symbol_pct:.2f}% of equity on {symbol} breaks the sealed "
+                f"{limits.MAX_POSITION_PCT:.1f}% per-position cap"
+            ),
+        ),
+        _limit(
+            "leverage",
+            leverage,
+            float(max_leverage),
+            leverage_ok,
+            f"gross exposure {verb} {leverage:.3f}x equity, limit {max_leverage:.2f}x",
+            source=CONFIGURED,
+            effect=REFUSES_ORDER,
+            reason=f"gross exposure {leverage:.3f}x exceeds the {max_leverage:.2f}x limit",
+            unit="x",
+        ),
+    ]
 
 
 @dataclass
@@ -145,13 +317,23 @@ class RiskGate:
             if not ok:
                 reasons.append(f"{request.symbol} is not in the allowed_symbols list")
 
-        # 3. the order has to be meaningful
-        qty_ok = float(request.qty) > 0
+        # 3. the order has to be meaningful - sized, and sized one way only
+        qty_ok = float(request.qty) > 0 or request.sized_at_fill
         checks.append(
-            _check("qty", float(request.qty), 0.0, qty_ok, f"qty={request.qty}")
+            _check(
+                "qty",
+                float(request.quote_qty) if request.sized_at_fill else float(request.qty),
+                0.0,
+                qty_ok,
+                f"quote_qty={request.quote_qty}"
+                if request.sized_at_fill
+                else f"qty={request.qty}",
+            )
         )
         if not qty_ok:
             reasons.append(f"qty must be positive, got {request.qty}")
+        if float(request.qty) > 0 and request.sized_at_fill:
+            reasons.append("give either qty or quote_qty, not both")
 
         reference = float(price) if price is not None else float(request.limit_price or 0.0)
         if reference <= 0:
@@ -160,6 +342,24 @@ class RiskGate:
         notional = request.notional(reference) if reference > 0 else 0.0
 
         equity = max(1e-9, float(account.equity))
+
+        # What the order does to the book.  An order that closes or trims a position
+        # *reduces* exposure: counting it as new exposure would make the cap and the
+        # stop requirement block every exit, which is the opposite of risk control.
+        current_signed = sum(float(p.qty) for p in positions if p.symbol == request.symbol)
+        current_notional = abs(current_signed) * reference if reference > 0 else 0.0
+        other_notional = (
+            sum(p.notional(reference) for p in positions if p.symbol != request.symbol)
+            if reference > 0
+            else 0.0
+        )
+        signed_notional = request.side.sign * notional
+        same_way = current_signed == 0 or (current_signed > 0) == (request.side is Side.BUY)
+        opening_notional = notional if same_way else max(0.0, notional - current_notional)
+        resulting_notional = (
+            abs(current_signed * reference + signed_notional) if reference > 0 else 0.0
+        )
+
         if reference > 0:
             min_ok = notional >= self.min_notional
             checks.append(
@@ -196,47 +396,27 @@ class RiskGate:
                     f"already holding {len(held)} position(s), the limit is {self.max_positions}"
                 )
 
-        # 5. exposure on the instrument (sealed) and overall leverage
+        # 5. exposure on the instrument (sealed) and overall leverage, after the fill.
+        #    The limits themselves live in `exposure_limits`, which the dashboard panel
+        #    calls with the book as it stands: one implementation, two readers.
         if reference > 0:
-            current = sum(p.notional(reference) for p in positions if p.symbol == request.symbol)
-            symbol_exposure_pct = (current + notional) / equity * 100.0
-            ok = symbol_exposure_pct <= self.limits.MAX_POSITION_PCT + 1e-9
-            checks.append(
-                _check(
-                    "position_pct",
-                    symbol_exposure_pct,
-                    self.limits.MAX_POSITION_PCT,
-                    ok,
-                    f"{request.symbol} exposure would be {symbol_exposure_pct:.2f}% of equity "
-                    f"against the sealed {self.limits.MAX_POSITION_PCT:.1f}%",
-                )
-            )
-            if not ok:
-                reasons.append(
-                    f"{symbol_exposure_pct:.2f}% of equity on {request.symbol} breaks the sealed "
-                    f"{self.limits.MAX_POSITION_PCT:.1f}% per-position cap"
-                )
+            for entry in exposure_limits(
+                self.limits,
+                equity,
+                symbol=request.symbol,
+                symbol_notional=resulting_notional,
+                other_notional=other_notional,
+                max_leverage=self.max_leverage,
+                hypothetical=True,
+            ):
+                checks.append(entry)
+                if not entry["ok"]:
+                    reasons.append(entry["reason"])
 
-            gross = sum(p.notional(reference) for p in positions if p.symbol != request.symbol)
-            leverage = (gross + current + notional) / equity
-            lev_ok = leverage <= self.max_leverage + 1e-9
-            checks.append(
-                _check(
-                    "leverage",
-                    leverage,
-                    self.max_leverage,
-                    lev_ok,
-                    f"gross exposure would be {leverage:.3f}x equity, limit {self.max_leverage:.2f}x",
-                )
-            )
-            if not lev_ok:
-                reasons.append(
-                    f"gross exposure {leverage:.3f}x exceeds the {self.max_leverage:.2f}x limit"
-                )
-
-        # 6. risk per trade, which needs a stop
+        # 6. risk per trade, which needs a stop.  A close adds no risk and needs none:
+        #    the position it closes was already gated, stop included.
         stop_pct = request.stop_loss_pct
-        if self.require_stop and stop_pct is None:
+        if self.require_stop and stop_pct is None and opening_notional > 0:
             reasons.append("no stop loss on the order; the risk layer requires one")
             checks.append(_check("trade_risk", 0.0, self.risk_pct * 100.0, False, "no stop given"))
         elif stop_pct is not None and reference > 0:
@@ -257,7 +437,7 @@ class RiskGate:
                     f"a {stop_distance_pct:.2f}% stop is outside the sealed hard stop of "
                     f"{self.limits.HARD_STOP_LOSS_PCT:.1f}%"
                 )
-            risk_pct = notional * abs(float(stop_pct)) / equity * 100.0
+            risk_pct = opening_notional * abs(float(stop_pct)) / equity * 100.0
             risk_ok = risk_pct <= self.risk_pct * 100.0 + 1e-9
             checks.append(
                 _check(
@@ -265,8 +445,8 @@ class RiskGate:
                     risk_pct,
                     self.risk_pct * 100.0,
                     risk_ok,
-                    f"order risks {risk_pct:.3f}% of equity if the stop is hit, "
-                    f"budget {self.risk_pct * 100.0:.3f}%",
+                    f"order adds {opening_notional:,.2f} of exposure risking {risk_pct:.3f}% "
+                    f"of equity if the stop is hit, budget {self.risk_pct * 100.0:.3f}%",
                 )
             )
             if not risk_ok:
@@ -275,44 +455,13 @@ class RiskGate:
                     f"{self.risk_pct * 100.0:.3f}% per-trade budget"
                 )
 
-        # 7. account-level sealed limits
-        dd_pct = float(account.drawdown) * 100.0
-        dd_ok = dd_pct <= self.limits.MAX_DRAWDOWN_PCT + 1e-9
-        checks.append(
-            _check(
-                "max_drawdown",
-                dd_pct,
-                self.limits.MAX_DRAWDOWN_PCT,
-                dd_ok,
-                f"account drawdown {dd_pct:.2f}% against the sealed "
-                f"{self.limits.MAX_DRAWDOWN_PCT:.1f}%",
-            )
-        )
-        if not dd_ok:
-            reasons.append(
-                f"account drawdown {dd_pct:.2f}% breaks the sealed "
-                f"{self.limits.MAX_DRAWDOWN_PCT:.1f}% limit: trading halts"
-            )
-            alerts.append("drawdown limit breached: new orders halted")
-
-        day_pct = abs(float(account.day_pnl_pct)) * 100.0
-        day_ok = float(account.day_pnl_pct) >= -self.limits.MAX_DAILY_LOSS_PCT / 100.0 - 1e-12
-        checks.append(
-            _check(
-                "max_daily_loss",
-                day_pct,
-                self.limits.MAX_DAILY_LOSS_PCT,
-                day_ok,
-                f"today's P&L is {account.day_pnl_pct * 100:+.2f}% against the sealed "
-                f"-{self.limits.MAX_DAILY_LOSS_PCT:.1f}% daily halt",
-            )
-        )
-        if not day_ok:
-            reasons.append(
-                f"today's loss {account.day_pnl_pct * 100:.2f}% is past the sealed "
-                f"-{self.limits.MAX_DAILY_LOSS_PCT:.1f}% daily halt"
-            )
-            alerts.append("daily loss limit breached: new orders halted")
+        # 7. account-level sealed limits - the ones that can halt trading
+        for entry in account_limits(self.limits, account):
+            checks.append(entry)
+            if not entry["ok"]:
+                reasons.append(entry["reason"])
+                if entry["alert"]:
+                    alerts.append(entry["alert"])
 
         # 8. order frequency
         if self.min_seconds_between_orders > 0 and last_order_at is not None and now is not None:

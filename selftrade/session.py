@@ -7,6 +7,13 @@ writes the report.
 
 A corrupt control file never kills a run: :meth:`Session.read` degrades to
 defaults instead of raising.
+
+**Two writers, one file.**  The loop records its heartbeat at every boundary and the
+operator writes a request from another process (the dashboard's buttons, ``session stop``).
+Both are read-modify-write, so without coordination the loop can write back the snapshot it
+read *before* a ``stop`` arrived - the click then does nothing, which is the one failure a
+control panel must not have.  Every write therefore happens under a cooperative lock file
+(see :meth:`Session._locked`): no dependency, no server, and never a way to wedge a run.
 """
 
 from __future__ import annotations
@@ -14,8 +21,16 @@ from __future__ import annotations
 import json
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
+
+#: How long a read-modify-write waits for the lock before giving up and writing anyway.
+#: The holder is a *state write* (microseconds), so this is a safety valve, never a wait.
+LOCK_TIMEOUT_S = 2.0
+LOCK_POLL_S = 0.01
+#: A lock file older than this is a process that died holding it: break it and carry on.
+LOCK_STALE_S = 30.0
 
 DEFAULT_STATE: dict[str, Any] = {
     "status": "idle",
@@ -58,60 +73,141 @@ class Session:
         merged.update(data)
         return merged
 
-    def write(self, state: dict[str, Any]) -> None:
+    def write(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Replace the file atomically, under the lock."""
+        with self._locked():
+            return self._write_unlocked(state)
+
+    def _write_unlocked(self, state: dict[str, Any]) -> dict[str, Any]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         state = dict(state)
         state["updated_at"] = time.time()
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
         tmp.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
         os.replace(tmp, self.path)
+        return state
+
+    def update(self, apply: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
+        """Read-modify-write as one indivisible step, so no request can be lost.
+
+        The read happens *inside* the lock: a ``stop`` the operator wrote can only land
+        before this step (and is then read, and preserved) or after it (and is then on
+        disk).  It can no longer be overwritten by a snapshot taken before it arrived.
+        """
+        with self._locked():
+            return self._write_unlocked(apply(dict(self.read())))
+
+    # -------------------------------------------------- lock
+    @property
+    def lock_path(self) -> Path:
+        return self.path.with_suffix(self.path.suffix + ".lock")
+
+    def _lock_is_stale(self) -> bool:
+        try:
+            return (time.time() - self.lock_path.stat().st_mtime) > LOCK_STALE_S
+        except OSError:
+            return False
+
+    def _drop_lock(self) -> None:
+        try:
+            self.lock_path.unlink()
+        except OSError:  # pragma: no cover - already gone, or held open elsewhere
+            pass
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Hold the cooperative lock for the duration of a read-modify-write.
+
+        The lock is the *existence* of ``<session file>.lock``, created with ``O_EXCL``:
+        the first process through wins and the others retry, which works across processes
+        with no dependency and no server.  Nothing here may wedge a run - a lock held by a
+        process that died is broken after :data:`LOCK_STALE_S`, and a holder that outlives
+        :data:`LOCK_TIMEOUT_S` is written past rather than waited on (the file itself is
+        still replaced atomically, so a reader never sees half a state).
+        """
+        acquired = False
+        broke_stale = False
+        deadline = time.monotonic() + LOCK_TIMEOUT_S
+        while not acquired:
+            try:
+                os.close(os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+                acquired = True
+            except FileExistsError:
+                # Once only: a lock we cannot remove is one we must stop retrying, or the
+                # loop spins here forever instead of trading.
+                if not broke_stale and self._lock_is_stale():
+                    broke_stale = True
+                    self._drop_lock()
+                    continue
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(LOCK_POLL_S)
+            except OSError:  # pragma: no cover - a state dir we cannot create files in
+                break
+        try:
+            yield
+        finally:
+            if acquired:
+                self._drop_lock()
 
     # -------------------------------------------------- requests
     def request(self, action: str) -> dict[str, Any]:
-        state = self.read()
-        state["pending"] = action
-        state["last_request"] = {"action": action, "ts": time.time()}
-        self.write(state)
-        return state
+        def apply(state: dict[str, Any]) -> dict[str, Any]:
+            state["pending"] = action
+            state["last_request"] = {"action": action, "ts": time.time()}
+            return state
+
+        return self.update(apply)
 
     def request_start(self, generations: int, pid: int | None = None) -> dict[str, Any]:
-        state = self.read()
-        state.update(
-            {
-                "status": "running",
-                "pid": pid,
-                "generation": 0,
-                "generations_done": 0,
-                "generations_total": int(generations),
-                "pending": "start",
-                "started_at": time.time(),
-            }
-        )
-        self.write(state)
-        return state
+        def apply(state: dict[str, Any]) -> dict[str, Any]:
+            state.update(
+                {
+                    "status": "running",
+                    "pid": pid,
+                    "generation": 0,
+                    "generations_done": 0,
+                    "generations_total": int(generations),
+                    "pending": "start",
+                    "started_at": time.time(),
+                }
+            )
+            return state
+
+        return self.update(apply)
 
     def mark_running(self, generations: int, pid: int | None = None) -> dict[str, Any]:
-        state = self.read()
-        state.update(
-            {
-                "status": "running",
-                "pid": os.getpid() if pid is None else pid,
-                "generation": 0,
-                "generations_done": 0,
-                "generations_total": int(generations),
-                "pending": None,
-                "started_at": time.time(),
-            }
-        )
-        self.write(state)
-        return state
+        """Record that a loop is running now (``start`` is the request this answers).
+
+        Only a ``start`` request is cleared here: a ``pause``/``stop`` written between the
+        spawn and this line is the operator's, and silently dropping it is how a clicked
+        button does nothing.
+        """
+
+        def apply(state: dict[str, Any]) -> dict[str, Any]:
+            pending = state.get("pending")
+            state.update(
+                {
+                    "status": "running",
+                    "pid": os.getpid() if pid is None else pid,
+                    "generation": 0,
+                    "generations_done": 0,
+                    "generations_total": int(generations),
+                    "pending": pending if pending in ("pause", "resume", "stop") else None,
+                    "started_at": time.time(),
+                }
+            )
+            return state
+
+        return self.update(apply)
 
     def mark_finished(self, status: str = "done") -> dict[str, Any]:
-        state = self.read()
-        state["status"] = status
-        state["pending"] = None
-        self.write(state)
-        return state
+        def apply(state: dict[str, Any]) -> dict[str, Any]:
+            state["status"] = status
+            state["pending"] = None
+            return state
+
+        return self.update(apply)
 
     def status(self) -> dict[str, Any]:
         return self.read()
@@ -120,40 +216,55 @@ class Session:
     def checkpoint(self, generation: int, total: int) -> str:
         """Called at a generation boundary.  Returns ``continue`` or ``stop``.
 
-        Honours ``pause`` by blocking until ``resume`` or ``stop``.
+        Honours ``pause`` by blocking until ``resume`` or ``stop``.  Every state change is
+        a locked read-modify-write, so a request that arrives while this generation is
+        running is never overwritten by the snapshot this call started from.
         """
-        state = self.read()
-        pending = state.get("pending")
-
-        if pending == "stop":
-            state.update({"status": "stopped", "pending": None})
-            self.write(state)
+        verdict = self._take_pending()
+        if verdict == "stop":
             return "stop"
-        if pending == "pause":
-            state.update({"status": "paused", "pending": None})
-            self.write(state)
-            # Block here: this is a real freeze, not just a flag.
-            while True:
-                time.sleep(self.poll_interval)
-                cur = self.read()
-                if cur.get("pending") == "resume":
-                    cur.update({"status": "running", "pending": None})
-                    self.write(cur)
-                    break
-                if cur.get("pending") == "stop":
-                    cur.update({"status": "stopped", "pending": None})
-                    self.write(cur)
-                    return "stop"
+        if verdict == "pause" and self._frozen_until_resumed():
+            return "stop"
 
-        state = self.read()
-        state.update(
-            {
-                "status": "running",
-                "generation": int(generation),
-                "generations_done": int(generation) + 1,
-                "generations_total": int(total),
-                "heartbeat": time.time(),
-            }
-        )
-        self.write(state)
+        def apply(state: dict[str, Any]) -> dict[str, Any]:
+            state.update(
+                {
+                    "status": "running",
+                    "generation": int(generation),
+                    "generations_done": int(generation) + 1,
+                    "generations_total": int(total),
+                    "heartbeat": time.time(),
+                }
+            )
+            return state
+
+        self.update(apply)
         return "continue"
+
+    def _take_pending(self) -> str | None:
+        """Consume a ``stop``/``pause`` request and record the status it implies."""
+        with self._locked():
+            state = self.read()
+            pending = state.get("pending")
+            if pending not in ("stop", "pause"):
+                return None
+            state.update({"status": "stopped" if pending == "stop" else "paused", "pending": None})
+            self._write_unlocked(state)
+        return str(pending)
+
+    def _frozen_until_resumed(self) -> bool:
+        """Block while paused; True when a ``stop`` arrived instead of a ``resume``."""
+        while True:
+            time.sleep(self.poll_interval)
+            with self._locked():
+                state = self.read()
+                pending = state.get("pending")
+                if pending in ("resume", "stop"):
+                    state.update(
+                        {
+                            "status": "running" if pending == "resume" else "stopped",
+                            "pending": None,
+                        }
+                    )
+                    self._write_unlocked(state)
+                    return pending == "stop"

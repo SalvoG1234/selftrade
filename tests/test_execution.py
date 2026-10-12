@@ -4,9 +4,13 @@ Four things are being pinned here, and they are the acceptance criteria of the
 brief rather than implementation details:
 
 * an order fills at the **next open**, with costs on both sides - the same rule as
-  the backtester, so the two rails cannot tell different stories;
+  the backtester, so the two rails cannot tell different stories - and `quote_qty`
+  resolves into a size at that very price;
+* the exit plan armed on a fill (hard stop, take profit, trailing) is evaluated
+  intrabar with the engine's ladder: gap fills at the open, stop before target;
 * the **risk gate blocks** an order before it exists, records why and raises an
-  alert, with the portfolio limits taken from the sealed layer;
+  alert, with the portfolio limits taken from the sealed layer - while an order that
+  *closes* a position is not treated as new exposure;
 * the **kill switch** stops new orders and survives a restart (and a corrupt state
   file fails *closed*);
 * the simulated broker's books **reconcile with its own fill ledger**.
@@ -33,6 +37,7 @@ from selftrade.execution import (
     Position,
     RiskGate,
     Side,
+    arming_detail,
     describe_decision,
     kill_switch_path,
 )
@@ -58,6 +63,15 @@ def broker(rows, **kw) -> PaperBroker:
     df["volume"] = 1.0
     return PaperBroker(
         df, symbol="BTC/USDT", cash=kw.pop("cash", 10_000.0), fee_bps=5.0, slippage_bps=2.0, **kw
+    )
+
+
+def free_broker(rows, **kw) -> PaperBroker:
+    """A broker with no costs, for the assertions that have to be exact."""
+    df = frame(rows)
+    df["volume"] = 1.0
+    return PaperBroker(
+        df, symbol="BTC/USDT", cash=kw.pop("cash", 10_000.0), fee_bps=0.0, slippage_bps=0.0, **kw
     )
 
 
@@ -277,6 +291,112 @@ def test_stop_is_armed_only_on_the_resulting_position():
     assert b._pending_stops == {}
 
 
+def test_a_quote_sized_order_is_resolved_at_the_fill_price():
+    """``quote_qty`` spends a given amount: the size follows the price the fill gets."""
+    b = free_broker([(100, 101, 99, 100), (200, 210, 190, 205)])
+    order = b.submit_order(OrderRequest("q1", "BTC/USDT", Side.BUY, quote_qty=1_000.0))
+    assert order.status is OrderStatus.NEW
+    assert order.quote_qty == pytest.approx(1_000.0)
+    b.advance()  # fills at the open of bar 2, which is 200 - not the price it saw
+    fill = b.get_trade_history()[0]
+    assert fill["qty"] == pytest.approx(5.0)
+    assert fill["price"] == pytest.approx(200.0)
+    assert b.cash == pytest.approx(9_000.0)
+    assert b.get_positions()[0].qty == pytest.approx(5.0)
+    assert b.reconcile() == []
+
+
+def test_a_quote_sized_order_keeps_the_costs_inside_the_amount():
+    b = broker([(100, 101, 99, 100), (200, 210, 190, 205)])
+    b.submit_order(OrderRequest("q2", "BTC/USDT", Side.BUY, quote_qty=1_000.0))
+    b.advance()
+    fill = b.get_trade_history()[0]
+    assert fill["qty"] * fill["price"] == pytest.approx(1_000.0)  # costs included
+    assert fill["price"] == pytest.approx(200.0 * (1 + COST))
+    assert b.cash == pytest.approx(9_000.0)
+
+
+def test_sizing_an_order_two_ways_at_once_is_refused():
+    b = broker([(100, 101, 99, 100)] * 2)
+    order = b.submit_order(OrderRequest("both", "BTC/USDT", Side.BUY, qty=1.0, quote_qty=100.0))
+    assert order.status is OrderStatus.REJECTED
+    assert "either qty or quote_qty" in order.reject_reason
+
+
+def test_take_profit_and_trailing_are_armed_with_the_stop():
+    b = broker([(100, 101, 99, 100), (100, 100.5, 99.5, 100)])
+    b.submit_order(
+        OrderRequest(
+            "plan",
+            "BTC/USDT",
+            Side.BUY,
+            qty=1.0,
+            stop_loss_pct=-0.05,
+            take_profit_pct=0.10,
+            trailing_pct=0.03,
+        )
+    )
+    b.advance()
+    entry = b.get_positions()[0].avg_price
+    assert b._stops == {"BTC/USDT": pytest.approx(entry * 0.95)}
+    assert b._targets == {"BTC/USDT": pytest.approx(entry * 1.10)}
+    assert b._trails["BTC/USDT"][0] == pytest.approx(0.03)
+    # The reference starts at the paid price and follows the bar's own high, exactly
+    # as the research engine's does.
+    assert b._trails["BTC/USDT"][1] == pytest.approx(100.5)
+    assert b._trails["BTC/USDT"][1] >= entry
+
+
+def test_take_profit_fills_at_the_level():
+    b = broker([(100, 101, 99, 100), (100, 101, 99, 100), (100, 115, 99, 112)])
+    b.submit_order(
+        OrderRequest(
+            "tp", "BTC/USDT", Side.BUY, qty=1.0, stop_loss_pct=-0.05, take_profit_pct=0.10
+        )
+    )
+    b.advance()  # entry at 100.07
+    entry = b.get_positions()[0].avg_price
+    b.advance()  # the high of 115 reaches the 10% target
+    fill = b.get_trade_history()[-1]
+    assert fill["reason"] == "target"
+    assert fill["price"] == pytest.approx(entry * 1.10 * (1 - COST))
+    assert b.get_positions() == []
+    assert b.reconcile() == []
+
+
+def test_the_stop_is_decided_before_the_target_in_the_same_bar():
+    b = broker([(100, 101, 99, 100), (100, 101, 99, 100), (100, 120, 90, 110)])
+    b.submit_order(
+        OrderRequest(
+            "both", "BTC/USDT", Side.BUY, qty=1.0, stop_loss_pct=-0.05, take_profit_pct=0.10
+        )
+    )
+    b.advance()
+    entry = b.get_positions()[0].avg_price
+    b.advance()  # one bar touches both levels
+    fill = b.get_trade_history()[-1]
+    assert fill["reason"] == "stop"  # conservative, and the research engine's rule
+    assert fill["price"] == pytest.approx(entry * 0.95 * (1 - COST))
+
+
+def test_the_trailing_stop_follows_the_best_price_and_keeps_the_profit():
+    b = broker(
+        [(100, 101, 99, 100), (100, 101, 99, 100), (100, 120, 119, 119), (119, 120, 110, 111)]
+    )
+    b.submit_order(
+        OrderRequest(
+            "trail", "BTC/USDT", Side.BUY, qty=1.0, stop_loss_pct=-0.20, trailing_pct=0.05
+        )
+    )
+    b.advance()  # entry at the open
+    b.advance()  # the high of 120 lifts the trailing reference
+    b.advance()  # 120 * 0.95 = 114; the low of 110 goes through it
+    fill = b.get_trade_history()[-1]
+    assert fill["reason"] == "stop"
+    assert fill["price"] == pytest.approx(120.0 * 0.95 * (1 - COST))
+    assert b.get_account_balance().realized_pnl > 0
+
+
 # --------------------------------------------------------------------------
 # integrity of the books
 # --------------------------------------------------------------------------
@@ -398,6 +518,51 @@ def test_gate_bounds_the_risk_per_trade():
     assert any("per-trade budget" in r for r in tight.reasons)
 
 
+def test_gate_does_not_count_an_exit_as_new_exposure():
+    """The same cap that lets a 5% entry in must not block the exit that closes it.
+
+    An order that reduces the position adds no exposure and needs no stop of its own:
+    the position it closes was gated, stop included, when it was opened.
+    """
+    gate = RiskGate()
+    held = [Position("BTC/USDT", 0.5, 100.0)]  # 50 of a 10,000 equity
+    closing = OrderRequest("close", "BTC/USDT", Side.SELL, 0.5)
+    decision = gate.check(closing, snapshot(), held, price=100.0)
+    assert decision.ok, decision.reasons
+    pct = next(c for c in decision.checks if c["name"] == "position_pct")
+    assert pct["value"] == pytest.approx(0.0)
+    assert not any("no stop loss" in r for r in decision.reasons)
+
+    # An order far bigger than the position flips the book: that new side is capped.
+    flip = OrderRequest("flip", "BTC/USDT", Side.SELL, 60.0, stop_loss_pct=-0.01)
+    blocked = gate.check(flip, snapshot(), held, price=100.0)
+    assert not blocked.ok
+    assert any("per-position cap" in r for r in blocked.reasons)
+    assert any("per-trade budget" in r or "per-position cap" in r for r in blocked.reasons)
+
+
+def test_gate_treats_a_quote_sized_order_by_its_amount():
+    gate = RiskGate()
+    small = OrderRequest(
+        "q", "BTC/USDT", Side.BUY, quote_qty=400.0, stop_loss_pct=-0.02
+    )
+    decision = gate.check(small, snapshot(), [], price=100.0)
+    assert decision.ok, decision.reasons
+    pct = next(c for c in decision.checks if c["name"] == "position_pct")
+    assert pct["value"] == pytest.approx(4.0)  # 400 on 10,000: no reference price needed
+
+    too_big = OrderRequest(
+        "q2", "BTC/USDT", Side.BUY, quote_qty=900.0, stop_loss_pct=-0.02
+    )
+    assert not gate.check(too_big, snapshot(), [], price=100.0).ok
+    # ...and giving both sizes is refused as ambiguous
+    both = OrderRequest("q3", "BTC/USDT", Side.BUY, qty=1.0, quote_qty=100.0)
+    assert any(
+        "either qty or quote_qty" in r
+        for r in gate.check(both, snapshot(), [], price=100.0).reasons
+    )
+
+
 def test_gate_blocks_a_new_symbol_when_the_book_is_full():
     gate = RiskGate(max_positions=1)
     held = [Position("ETH/USDT", 1.0, 100.0)]
@@ -508,6 +673,18 @@ def test_alerts_engage_the_kill_switch_and_the_next_order_is_refused(tmp_path):
     assert other.status is OrderStatus.REJECTED
     assert "kill switch is engaged" in other.reject_reason
 
+    # The alert that follows this halt has to say *with how much room*, and that margin
+    # only exists at this instant: the switch kept it, so `notify` can quote it later.
+    detail = switch.describe()["detail"]
+    assert detail["drawdown"] == 0.20
+    assert detail["alerts"] and "limit breached" in detail["alerts"][0]
+    checks = {c["name"]: c for c in detail["checks"]}
+    assert set(checks) == {"max_drawdown", "max_daily_loss"}   # only the halting ones
+    assert checks["max_drawdown"]["ok"] is False
+    assert checks["max_drawdown"]["headroom"] == pytest.approx(-5.0)
+    assert checks["max_daily_loss"]["ok"] is True
+    assert checks["max_daily_loss"]["headroom"] > 0             # the margin that remained
+
 
 def test_gate_is_optional_but_documented():
     b = broker([(100, 101, 99, 100)] * 2)
@@ -566,6 +743,75 @@ def test_kill_switch_reset_is_explicit_and_audited(tmp_path):
     assert [h["event"] for h in state["history"]] == ["trigger", "reset"]
     with pytest.raises(Exception):
         switch.trigger("")
+
+
+def test_arming_detail_keeps_the_halting_limits_and_nothing_else():
+    """The numbers the gate saw: scalars and flat rows, not prose or nested blobs."""
+
+    class Snap:
+        equity = 8_456.0
+        drawdown = 0.2387
+        day_pnl_pct = -0.003
+        ts = "2026-01-01T00:00:00+00:00"
+
+    checks = [
+        {"name": "max_drawdown", "value": 23.87, "limit": 15.0, "headroom": -8.87,
+         "headroom_frac": -0.59, "unit": "pp", "ok": False, "arms": True, "reason": "prose"},
+        {"name": "position_pct", "value": 0.0, "limit": 5.0, "headroom": 5.0,
+         "headroom_frac": 1.0, "unit": "pp", "ok": True, "arms": False},
+    ]
+    detail = arming_detail(Snap(), checks, alerts=["drawdown limit breached: new orders halted"])
+
+    assert [c["name"] for c in detail["checks"]] == ["max_drawdown"]
+    assert "reason" not in detail["checks"][0]        # the numbers, not the wording
+    assert detail["alerts"] == ["drawdown limit breached: new orders halted"]
+    assert (detail["equity"], detail["drawdown"], detail["day_pnl_pct"]) == (
+        8_456.0, 0.2387, -0.003
+    )
+    assert detail["as_of"] == "2026-01-01T00:00:00+00:00"
+    assert arming_detail(None, None) == {
+        "alerts": [], "equity": None, "drawdown": None, "day_pnl_pct": None,
+        "as_of": "", "checks": [],
+    }
+
+
+def test_kill_switch_keeps_the_numbers_the_gate_saw(tmp_path):
+    """Only scalars and one flat list survive, the first cause keeps its numbers, and a
+    reset forgets them: what was left at the refusal cannot be reconstructed later."""
+    switch = KillSwitch(tmp_path / "k.json")
+    state = switch.trigger(
+        "drawdown limit breached",
+        by="risk_gate",
+        detail={
+            "drawdown": 0.2387,
+            "equity": 8_456.0,
+            "checks": [{"name": "max_drawdown", "headroom": -8.87, "ok": False}],
+            "nested": {"not": "a scalar"},
+            "long": "x" * 500,
+        },
+    )
+
+    assert state["detail"]["drawdown"] == 0.2387
+    assert state["detail"]["checks"][0]["headroom"] == -8.87
+    assert "nested" not in state["detail"]
+    assert len(state["detail"]["long"]) == 200
+    # a second trigger keeps the *first* halt's numbers, like it keeps the first reason
+    again = switch.trigger("something else too", by="risk_gate", detail={"drawdown": 0.5})
+    assert again["detail"]["drawdown"] == 0.2387
+    assert switch.reset("reviewed by the operator")["detail"] == {}
+
+
+def test_a_switch_file_written_before_the_numbers_existed_has_none(tmp_path):
+    """An older state file must read as "no numbers", not as an error."""
+    path = tmp_path / "k.json"
+    path.write_text(
+        json.dumps({"blocked": True, "reason": "old halt", "triggered_by": "risk_gate",
+                    "triggered_at": "2026-01-01T00:00:00+00:00", "history": []}),
+        encoding="utf-8",
+    )
+    info = KillSwitch(path).describe()
+    assert info["blocked"] is True and info["reason"] == "old halt"
+    assert info["detail"] == {}
 
 
 def test_kill_switch_path_follows_the_session_file(tmp_path):

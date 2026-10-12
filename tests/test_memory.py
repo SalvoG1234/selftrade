@@ -1,8 +1,10 @@
+import sqlite3
+
 import numpy as np
 import pytest
 
 from selftrade.genome import sample_genome
-from selftrade.memory import Memory
+from selftrade.memory import SCHEMA_VERSION, Memory
 
 
 @pytest.fixture()
@@ -11,7 +13,7 @@ def mem(tmp_path):
 
 
 def test_schema_created(mem):
-    assert mem.schema_version() == 1
+    assert mem.schema_version() == SCHEMA_VERSION
     assert mem.stats()["runs"] == 0
 
 
@@ -19,7 +21,7 @@ def test_init_is_idempotent(tmp_path):
     path = tmp_path / "m.db"
     Memory(path)
     m2 = Memory(path)  # opening again must not wipe data
-    assert m2.schema_version() == 1
+    assert m2.schema_version() == SCHEMA_VERSION
 
 
 def test_run_lifecycle(mem):
@@ -155,3 +157,124 @@ def test_history(mem):
     hist = mem.history()
     assert len(hist) == 3
     assert hist[0]["note"] == "run2"
+
+
+# ------------------------------------------------------------- provenance
+
+
+def test_a_v1_database_is_migrated_in_place(tmp_path):
+    """An existing database keeps its rows and gains the provenance columns."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL,
+           note TEXT, config TEXT, summary TEXT, outcome TEXT);
+           INSERT INTO runs(ts, note, config, summary, outcome)
+           VALUES (1.0, 'old run', NULL, NULL, 'ok');"""
+    )
+    conn.commit()
+    conn.close()
+
+    mem = Memory(path)
+    assert mem.schema_version() == SCHEMA_VERSION
+    run = mem.last_run()
+    assert run["note"] == "old run"          # the history survived the migration
+    assert run["repro_id"] is None           # and reads N/D rather than a guess
+    assert run["reproducible"] is None
+
+
+def test_run_stores_the_reproducibility_record(mem):
+    repro = {
+        "repro_id": "abc123",
+        "reproducible": False,
+        "commit": "f" * 40,
+        "commit_short": "fffffff",
+        "dataset": {"sha256": "e" * 64, "rows": 18000},
+    }
+    rid = mem.start_run("with provenance", None, repro=repro)
+    run = mem.get_run(rid)
+    assert run["repro_id"] == "abc123"
+    assert run["commit_sha"] == "f" * 40
+    assert run["code_version"] == "fffffff"
+    assert run["dataset_sha"] == "e" * 64
+    assert run["dataset_rows"] == 18000
+    assert run["reproducible"] is False      # a dirty tree is recorded as such
+
+
+def test_run_without_a_fingerprint_stores_nulls(mem):
+    rid = mem.start_run("no provenance")
+    run = mem.get_run(rid)
+    assert run["repro_id"] is None and run["commit_sha"] is None
+
+
+# --------------------------------------------------------- strategy versions
+
+
+def test_strategy_version_records_parent_diff_and_delta(mem):
+    parent = {"family": "trend_momentum", "params": {"ema_fast": 10, "ema_slow": 50},
+              "risk": {"stop_loss_pct": -0.05}}
+    child = {"family": "trend_momentum", "params": {"ema_fast": 12, "ema_slow": 50},
+             "risk": {"stop_loss_pct": -0.05}}
+    rid = mem.start_run("v")
+    vid = mem.add_strategy_version(
+        rid, genome=child, parent=parent, generation=1, version=2, origin="llm",
+        rationale="faster entry", reason="", fitness=0.8, parent_fitness=0.5,
+        passed=True, outcome="kept",
+    )
+    rows = mem.strategy_versions(rid)
+    assert len(rows) == 1
+    v = rows[0]
+    assert v["id"] == vid and v["version"] == 2 and v["generation"] == 1
+    assert v["family"] == "trend_momentum" and v["parent_family"] == "trend_momentum"
+    assert v["delta_fitness"] == pytest.approx(0.3)
+    assert [d["key"] for d in v["diff"]] == ["ema_fast"]
+    assert v["diff"][0]["from"] == 10 and v["diff"][0]["to"] == 12
+    assert v["genome_hash"] and v["genome_hash"] != v["parent_hash"]
+    assert v["rationale"] == "faster entry"
+
+
+def test_a_seed_version_has_no_parent(mem):
+    rid = mem.start_run("v")
+    g = sample_genome("rsi_reversion", np.random.default_rng(11))
+    mem.add_strategy_version(rid, genome=g, origin="seed", version=1, outcome="dropped")
+    v = mem.strategy_versions(rid)[0]
+    assert v["parent"] is None and v["diff"] == [] and v["parent_fitness"] is None
+    assert v["delta_fitness"] is None
+
+
+def test_version_history_is_per_run_and_ordered(mem):
+    g = sample_genome("rsi_reversion", np.random.default_rng(12))
+    first = mem.start_run("a")
+    second = mem.start_run("b")
+    mem.add_strategy_version(first, genome=g, version=1, outcome="kept")
+    mem.add_strategy_version(second, genome=g, version=1, outcome="dropped")
+    mem.add_strategy_version(second, genome=g, version=2, outcome="kept")
+    assert [v["version"] for v in mem.strategy_versions(second)] == [1, 2]
+    assert len(mem.strategy_versions(first)) == 1
+    assert len(mem.strategy_versions()) == 3
+    assert mem.stats()["strategy_versions"] == 3
+
+
+def test_version_outcome_can_be_relabelled(mem):
+    rid = mem.start_run("v")
+    g = sample_genome("rsi_reversion", np.random.default_rng(13))
+    vid = mem.add_strategy_version(rid, genome=g, version=1, passed=True, outcome="kept")
+    mem.set_version_outcome(vid, "champion")
+    assert mem.strategy_versions(rid)[0]["outcome"] == "champion"
+
+
+def test_latest_versions_cross_runs_newest_first(mem):
+    g = sample_genome("rsi_reversion", np.random.default_rng(14))
+    rid = mem.start_run("v")
+    for i in range(3):
+        mem.add_strategy_version(rid, genome=g, version=i + 1)
+    latest = mem.latest_strategy_versions(limit=2)
+    assert [v["version"] for v in latest] == [3, 2]
+
+
+def test_a_bad_genome_does_not_break_a_version_write(mem):
+    rid = mem.start_run("v")
+    vid = mem.add_strategy_version(rid, genome={"family": "nope"}, version=1)
+    assert vid > 0
+    v = mem.strategy_versions(rid)[0]
+    assert v["genome_hash"] is None and v["diff"] == []

@@ -99,10 +99,46 @@ def test_enum_validation(tmp_path):
         load_settings(p)
 
 
-def test_dashboard_must_be_loopback(tmp_path):
-    p = write_cfg(tmp_path, "dashboard:\n  host: 0.0.0.0\n")
-    with pytest.raises(ConfigError):
+def test_dashboard_lan_bind_requires_auth(tmp_path):
+    """A non-loopback bind without the login would expose the loop controls."""
+    p = write_cfg(tmp_path, "dashboard:\n  host: 0.0.0.0\n  auth: false\n")
+    with pytest.raises(ConfigError) as exc:
         load_settings(p)
+    assert "dashboard.auth" in str(exc.value)
+
+
+def test_dashboard_lan_bind_is_allowed_with_auth(tmp_path):
+    p = write_cfg(tmp_path, "dashboard:\n  host: 0.0.0.0\n  auth: true\n")
+    s = load_settings(p)
+    assert s.dashboard.host == "0.0.0.0"
+    assert s.dashboard.auth is True
+
+
+def test_dashboard_defaults_and_validation(tmp_path):
+    s = load_settings(None)
+    assert s.dashboard.auth is True
+    assert s.dashboard.market_interval == "1m"
+    assert s.dashboard.market_symbol == "BTC/USDT"
+    assert s.dashboard.password_env == "SELFTD_DASHBOARD_PASSWORD"
+    assert s.dashboard.key_refresh_s == 60.0
+    for bad in (
+        "dashboard:\n  market_bars: 5\n",
+        "dashboard:\n  market_bars: 2000\n",
+        "dashboard:\n  market_refresh_s: 0.1\n",
+        # every key probe is a signed request against the exchange's rate budget,
+        # so the panel refuses a cadence that would turn it into a flood
+        "dashboard:\n  key_refresh_s: 1\n",
+        "dashboard:\n  session_ttl_s: 10\n",
+    ):
+        with pytest.raises(ConfigError):
+            load_settings(write_cfg(tmp_path, bad))
+
+
+def test_dashboard_reference_config_section():
+    s = load_settings("config.yaml")
+    assert s.dashboard.auth is True
+    assert s.dashboard.market_symbol == "BTC/USDT"
+    assert s.dashboard.key_refresh_s >= 5
 
 
 def test_risk_gate_defaults_and_overrides():
@@ -145,6 +181,68 @@ def test_reference_config_has_the_risk_gate_section():
     s = load_settings("config.yaml")
     assert s.risk_gate.max_positions >= 1
     assert 0 < s.risk_gate.risk_pct <= 1
+
+
+def test_binance_defaults_are_off_and_testnet_only():
+    s = load_settings(None)
+    assert s.binance.enabled is False
+    assert s.binance.live is False
+    assert s.binance.base_url == "https://testnet.binance.vision/api"
+    assert s.binance.api_key_env == "SELFTD_BINANCE_API_KEY"
+    assert s.binance.recv_window == 5000
+    apply_override(s, "binance.max_weight_per_min=200")
+    assert s.binance.max_weight_per_min == 200
+
+
+def test_binance_reference_config_section():
+    s = load_settings("config.yaml")
+    assert s.binance.enabled is False
+    assert s.binance.live is False
+    assert "testnet" in s.binance.base_url
+
+
+def test_binance_production_is_an_explicit_opt_in(tmp_path):
+    s = load_settings(None)
+    assert s.binance.allow_production is False
+    # a funded host without the flag is a config error
+    with pytest.raises(ConfigError):
+        load_settings(write_cfg(tmp_path, "binance:\n  base_url: https://api.binance.com/api\n"))
+    # with the flag it is allowed, and the rest is still validated
+    s2 = load_settings(
+        write_cfg(tmp_path, "binance:\n  allow_production: true\n  base_url: https://api.binance.com/api\n")
+    )
+    assert s2.binance.allow_production is True
+    assert s2.binance.base_url == "https://api.binance.com/api"
+
+
+def test_binance_production_refuses_a_lookalike_host(tmp_path):
+    with pytest.raises(ConfigError) as exc:
+        load_settings(
+            write_cfg(
+                tmp_path,
+                "binance:\n  allow_production: true\n  base_url: https://api-binance.example.com/api\n",
+            )
+        )
+    assert "look-alike" in str(exc.value)
+
+
+def test_the_reference_config_keeps_production_off():
+    s = load_settings("config.yaml")
+    assert s.binance.allow_production is False
+    assert "testnet" in s.binance.base_url
+
+
+def test_binance_range_validation(tmp_path):
+    for bad in (
+        "binance:\n  recv_window: 70000\n",  # documented maximum is 60000
+        "binance:\n  recv_window: 0\n",
+        "binance:\n  timeout: 0\n",
+        "binance:\n  kline_bars: 2000\n",
+        "binance:\n  max_weight_per_min: 0\n",
+        "binance:\n  base_url: https://api.binance.com/api\n",
+    ):
+        with pytest.raises(ConfigError):
+            load_settings(write_cfg(tmp_path, bad))
 
 
 def test_as_dict_shape():
