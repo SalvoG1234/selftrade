@@ -22,6 +22,7 @@ import pandas as pd
 
 from .backtest import BacktestResult, compute_metrics, simulate
 from .genome import complexity, validate_genome
+from .invest import buy_hold_series
 
 INSTABILITY_WEIGHT = 0.5
 
@@ -89,6 +90,36 @@ def make_folds(
     return out
 
 
+def baseline_metrics(
+    df: pd.DataFrame, settings: Any, *, initial_cash: float | None = None
+) -> dict[str, float]:
+    """Buy & hold over exactly this slice: what the market itself did with the same cash.
+
+    The benchmark a real alternative would have been: the same starting cash, the same
+    per-side cost charged once on the entry (nothing is ever sold) and the *same* metric
+    definitions :func:`compute_metrics` applies to a strategy.  So a candidate that merely
+    tracks the market is visible as such, instead of a positive number reading like skill.
+
+    Nothing here is optimised and nothing here is a competitor: the fitness, the gates and
+    the elite never see this.  It is a reference printed next to the result, and the reason
+    it lives in this module rather than in ``invest`` is that the folds and the holdout must
+    measure it on the very slice they measured the strategy on.
+    """
+    bt = settings.backtest
+    cash = float(bt.initial_cash if initial_cash is None else initial_cash)
+    if not len(df):
+        return compute_metrics(
+            pd.Series(dtype="float64"), pd.DataFrame(), cash, settings.data.timeframe
+        )
+    cost = (float(bt.fee_bps) + float(bt.slippage_bps)) / 10_000.0
+    equity = buy_hold_series(df, cash, cost)
+    # No trades: the account buys once and never sells.  An empty frame with the columns
+    # the metric code reads keeps the trade metrics at their neutral value (n_trades 0)
+    # rather than inventing a round trip that cost nothing.
+    empty = pd.DataFrame(columns=["exit_reason", "pnl", "return_pct"])
+    return compute_metrics(equity, empty, cash, str(settings.data.timeframe))
+
+
 def _test_slice_metrics(
     res: BacktestResult, test_start, initial_cash: float, timeframe: str
 ) -> dict[str, float]:
@@ -113,6 +144,9 @@ def evaluate_folds(
 
     folds = make_folds(dev, ev.folds, ev.train_frac)
     fold_metrics: list[dict[str, float]] = []
+    # The market's own answer for each test slice, measured the same way.  Computed once per
+    # fold and carried in the result: the CLI and the lab panel read it, the search does not.
+    baseline_metrics_by_fold: list[dict[str, float]] = []
     for f in folds:
         chunk = f["chunk"]
         res = simulate(
@@ -127,8 +161,10 @@ def evaluate_folds(
         )
         m = _test_slice_metrics(res, f["test"].index[0], bt.initial_cash, timeframe)
         fold_metrics.append(m)
+        baseline_metrics_by_fold.append(baseline_metrics(f["test"], settings))
 
     values = [metric_value(m, ev.metric) for m in fold_metrics]
+    baseline_values = [metric_value(m, ev.metric) for m in baseline_metrics_by_fold]
     metric_mean = float(np.mean(values)) if values else 0.0
     metric_std = float(np.std(values, ddof=0)) if len(values) > 1 else 0.0
     n_trades_total = int(sum(int(m["n_trades"]) for m in fold_metrics))
@@ -150,6 +186,13 @@ def evaluate_folds(
         "folds": fold_metrics,
         "fold_values": values,
         "metric_mean": metric_mean,
+        # The benchmark, kept beside the result it belongs to.  ``metric_excess`` is the
+        # only summary derived from it, and it is what a reader should quote: the metric the
+        # strategy earned over simply holding the asset on the same slices.
+        "baseline_folds": baseline_metrics_by_fold,
+        "baseline_values": baseline_values,
+        "baseline_mean": float(np.mean(baseline_values)) if baseline_values else 0.0,
+        "metric_excess": metric_mean - (float(np.mean(baseline_values)) if baseline_values else 0.0),
         "metric_std": metric_std,
         "n_trades": n_trades_total,
         "max_drawdown": worst_dd,
@@ -179,6 +222,9 @@ def holdout_eval(
     )
     return {
         "metrics": res.metrics,
+        # The same slice, same cash, same cost, buy & hold: the number the holdout result has
+        # to be read against.  Documented in docs/ARCHITECTURE.md; never part of the fitness.
+        "baseline": baseline_metrics(holdout_df, settings),
         "n_trades": int(res.metrics.get("n_trades", 0)),
         # Kept so the autopsy and the critic can look at the same single run
         # instead of evaluating the holdout a second time.

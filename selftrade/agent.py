@@ -260,11 +260,19 @@ class Evolver:
             fold_values = fold_values or []
             hv = metric_value(hold["metrics"], s.evaluation.metric)
             warning = regime_luck_warning(fold_values, hv)
+            # The same holdout slice, same cash, same cost, simply holding the asset: the
+            # number the out-of-sample metric means nothing without (docs/ARCHITECTURE.md).
+            baseline = hold["baseline"]
+            baseline_value = metric_value(baseline, s.evaluation.metric)
             holdout_report = {
                 "read_count": guard.reads,
                 "metrics": hold["metrics"],
                 "metric": s.evaluation.metric,
                 "metric_value": hv,
+                "baseline": baseline,
+                "baseline_value": baseline_value,
+                "baseline_return": float(baseline.get("total_return", 0.0)),
+                "excess": hv - baseline_value,
                 "fold_mean": float(np.mean(fold_values)) if fold_values else 0.0,
                 "fold_values": fold_values,
                 "n_trades": hold["n_trades"],
@@ -732,6 +740,13 @@ def render_markdown(result: EvolutionResult, settings: Settings) -> str:
             f"**{h['fold_mean']:.3f}** over folds {[round(v, 3) for v in h['fold_values']]}"
         )
         L.append(f"- holdout trades: {h['n_trades']}")
+        # The benchmark, on the same slice: a holdout number is a claim about *excess*,
+        # and without this line a rising market would read as a working strategy.
+        L.append(
+            f"- market (buy & hold, same cash and cost): {h['metric']} "
+            f"**{h['baseline_value']:.3f}**, return **{h['baseline_return'] * 100:+.2f}%** "
+            f"-> strategy excess **{h['excess']:+.3f}**"
+        )
         L.append(f"- evaluated the {'champion' if h['was_champion'] else 'best-scoring candidate'}")
         if h["regime_luck_warning"]:
             L.append(f"- **regime-luck warning**: {h['regime_luck_warning']}")

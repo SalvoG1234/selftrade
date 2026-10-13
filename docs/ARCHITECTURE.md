@@ -116,6 +116,40 @@ fame.
 `Holdout`, which raises on a second read. It is read exactly once per run, at
 the end. A test asserts zero reads during evolution and exactly one at the end.
 
+**The buy & hold benchmark** — every evaluation also measures the market itself,
+because a metric with no reference reads as skill when the asset simply rose.
+`evaluate.baseline_metrics(df, settings)` runs
+`invest.buy_hold_series(df, initial_cash, (fee_bps + slippage_bps) / 10_000)` on
+**the same slice** the strategy was measured on — each fold's test window, and the
+holdout — and returns the same metric set `compute_metrics` returns for a strategy
+(no round trips: `n_trades = 0`), so the two columns are directly comparable:
+
+```
+baseline_mean  = mean(buy & hold metric over the same test slices)
+metric_excess  = metric_mean - baseline_mean
+```
+
+Motivation: a positive out-of-sample Sharpe on an asset that doubled is not
+evidence of an edge, and a search that cannot see the benchmark will happily
+report one. `metric_excess` is the number to quote; `baseline_mean` is the number
+it is measured against.
+
+Limits, stated rather than implied: the benchmark is **one** long holding from the
+first open to the last close of the slice, with the entry cost paid once and no
+exit cost (nothing is sold), so it is not a strategy and not a competitor — the
+fitness, the gates and the elite never read it. Its drawdown is measured within
+its own recorded curve exactly as a strategy's is, so a flat market reads `0.0`
+there and the entry cost shows up as a level, not as a fall. A test patches the
+benchmark to nonsense and asserts every number the search uses is unchanged.
+
+Where it is read: `selftrade backtest` prints it (`market (buy & hold)` and
+`holdout market (buy & hold)`) and returns it in JSON as `baseline_folds`,
+`baseline_mean`, `metric_excess` and `holdout.baseline`; the evolve report states
+it in the holdout section. The other baseline already in the tree — the buy &
+hold series in `selftrade invest`, with its cost-drag and cost-sensitivity tables —
+answers a different question (what an investor's account would have looked like)
+and lives in that report.
+
 ## The evolution loop
 
 ```

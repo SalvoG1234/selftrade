@@ -47,6 +47,21 @@ same trades return **+9.3%** - the edge lived entirely in the fees. Over the
 full history (in-sample, so optimistically biased) the strategy turned 10 000
 into 70 386 against 107 466 for holding. Details: `docs/INVESTMENT-SIM.md`.
 
+Every evaluation now measures the market itself on the same slices, so a fold
+metric is readable as excess rather than as skill (`docs/ARCHITECTURE.md`). For
+that champion, per fold, Sharpe against simply holding the asset:
+
+| | fold 0 | fold 1 | fold 2 | fold 3 | mean | holdout |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| strategy | 0.585 | 0.966 | 1.503 | 0.486 | **0.885** | **−0.545** |
+| buy & hold | −1.100 | 0.539 | 1.516 | 1.431 | 0.596 | 0.009 |
+| excess | | | | | **+0.288** | **−0.554** |
+
+So it beat holding by 0.288 Sharpe over the folds it was selected on, and lost
+to it by 0.554 on the holdout: the selection advantage did not survive the one
+read the search never saw. The benchmark is not part of the fitness and cannot
+promote anything.
+
 ## Feedback wanted
 
 This project is at the stage where outside eyes help more than more code. If you

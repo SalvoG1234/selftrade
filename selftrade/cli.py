@@ -14,7 +14,7 @@ from typing import Any
 from . import __version__
 from .config import ConfigError, load_settings
 from .data import split_holdout
-from .evaluate import Holdout, evaluate_folds, holdout_eval
+from .evaluate import Holdout, evaluate_folds, holdout_eval, metric_value
 from .genome import describe, sample_genome
 from .memory import Memory, StorageError
 
@@ -262,6 +262,11 @@ def cmd_backtest(args) -> int:
         "fitness": rep["fitness"],
         "metric": rep["metric"],
         "folds": rep["folds"],
+        # What the market did on the very same test slices: the number the folds have to be
+        # read against, measured by the same metric and the same cost model.
+        "baseline_folds": rep["baseline_folds"],
+        "baseline_mean": rep["baseline_mean"],
+        "metric_excess": rep["metric_excess"],
         "n_trades": rep["n_trades"],
         "max_drawdown": rep["max_drawdown"],
         "passed": rep["passed"],
@@ -273,7 +278,11 @@ def cmd_backtest(args) -> int:
         # keep the JSON interface stable: holdout_eval also carries the equity
         # series and the trade frame (the Evolver needs them), which do not belong
         # in a printed payload.
-        out["holdout"] = {"metrics": h["metrics"], "n_trades": h["n_trades"]}
+        out["holdout"] = {
+            "metrics": h["metrics"],
+            "n_trades": h["n_trades"],
+            "baseline": h["baseline"],
+        }
     if args.json:
         _print_json(out)
     else:
@@ -286,8 +295,20 @@ def cmd_backtest(args) -> int:
                 f"  fold {i}: {settings.evaluation.metric}={m.get(settings.evaluation.metric, 0):.3f} "
                 f"trades={int(m.get('n_trades', 0))} dd={m.get('max_drawdown', 0):.3f}"
             )
+        # The benchmark, said in one line: what the same cash did simply holding the asset
+        # over the same test slices, and what the strategy earned over that.
+        print(
+            f"  market (buy & hold): {settings.evaluation.metric}="
+            f"{rep['baseline_mean']:.3f} | excess={rep['metric_excess']:+.3f}"
+        )
         if "holdout" in out:
             print(f"  holdout: {out['holdout']['metrics']}")
+            hb = out["holdout"]["baseline"]
+            print(
+                f"  holdout market (buy & hold): {settings.evaluation.metric}="
+                f"{metric_value(hb, settings.evaluation.metric):.3f} | return="
+                f"{hb.get('total_return', 0.0) * 100:+.2f}%"
+            )
     return 0 if rep["passed"] else 2
 
 
