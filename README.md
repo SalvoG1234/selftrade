@@ -209,6 +209,7 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 | `autopsy [--champion \| --family F] [--window W] [--worst N] [--out F] [--json]` | post-mortem of the losers: worst losses with entry context, clustered failure modes, and the lesson stored in the memory |
 | `critic [--champion \| --family F] [--window W] [--json]` | judge deployment against the sealed risk limits; exit 1 = refused, and `paper --create` refuses too |
 | `stress [--champion \| --family F] [--window W] [--paths N] [--seed S] [--method M] [--block N] [--deltas L] [--no-risk] [--out F] [--json]` | Monte Carlo over the closed trades (reproducible for a seed) plus ±δ parameter sensitivity, and the measured degradation |
+| `lock-stress [--rounds N] [--writers N] [--cycles N] [--race-share F] [--replace-share F] [--seed S] [--budget S] [--legacy] [--compare] [--out F] [--json]` | the concurrency soak for the session lock: writers heartbeat the file while an operator writes `stop`, with the Windows lost create race injected — and reports requests overwritten and writes performed **beside** the lock. `--compare` runs the pre-fix reading too and passes only when the shipped lock is clean **and** the broken one is not (exit **2** a regression, **3** inconclusive). Works in a temporary directory and never touches `state/session.json` |
 | `risk show\|verify\|seal` | the read-only risk layer and its SHA-256 seal |
 | `risk limits [--json]` | the sealed caps against the live paper session, from a terminal: the same measurement the dashboard renders, plus any alert that has not been sent yet. Exit **0** within the limits, **1** a halting limit is breached (the next order arms the stop), **2** nothing to measure |
 | `notify status\|test\|watch\|reset [--interval S] [--once] [--json]` | the risk alert channel: who would be told and what is pending (`status`, sends nothing), one proof message (`test`), the supervisor that sends on transitions only (`watch`), and forgetting what was announced (`reset`) |
@@ -233,8 +234,9 @@ selftrade/               the package (see docs/ARCHITECTURE.md for the module ma
 tests/                   one module per source module; stubs for Ollama/REA/MT5
 docs/                    WINDOWS-SETUP, ARCHITECTURE, PAPER-TRADING, CAPITAL, DASHBOARD,
                          NOTIFICATIONS, INVESTMENT-SIM, AUTOPSY-AND-CRITIC, STRESS,
-                         EXECUTION-AND-RISK-GATE, BINANCE-TESTNET, LOOP-AI-PLAN,
-                         EXTENDING, REA-INTEGRATION, RUFLO-SWARM, TRADING-COM-MT5
+                         SESSION-LOCK, EXECUTION-AND-RISK-GATE, BINANCE-TESTNET,
+                         LOOP-AI-PLAN, EXTENDING, REA-INTEGRATION, RUFLO-SWARM,
+                         TRADING-COM-MT5
 data/ state/ reports/    git-ignored runtime data
 user_data/strategies/    exported freqtrade strategies
 setup.ps1 run.ps1 paper.ps1 control.ps1 dashboard.ps1 mt5.ps1
@@ -326,6 +328,9 @@ funding a fantasy account - and the sealed 5% / 15% caps bind on funded capital 
 | `stress --champion --paths 2000 --seed 7` on the real data (2.0 s) | the 90-trade holdout becomes p5 −35.50% / p50 −16.37% / p95 +14.81% (realized −15.44%); drawdown p95 37.35% vs realized 25.95% and P(drawdown over the sealed 15%) = 88.6%; the worst ±δ parameter move (`ema_slow`, −25%) takes the Sharpe from −0.545 to −0.893 (63.9% worse) with 0 gate breaks and 3 clamped perturbations |
 | `stress` reproducibility | the same seed reproduces the percentiles, the probabilities **and** the path digest (`9e7e555f…`) bit for bit; a different seed changes it; a `--method shuffle` run holds the realized return exactly (p5 = p95 = −15.44% to ~1e-15) and only moves the path |
 | `stress` test module | 31 tests: seed reproducibility, the shuffle identity, engine parity of the realized path, streaks, clamping, gate breaks and the alias for `metric: return` |
+| `lock-stress` on Windows 11 (default) | 15 rounds × 3 writers × 3 stop-cycles: 968 writes, **365 create races injected** and 3 creates denied by the operating system itself, **0 stops overwritten and 0 writes beside the lock**, 9.7 s |
+| `lock-stress --compare` | the lock as shipped **clean** (45 stop-checks) vs the pre-fix reading **defect** (**2 stops lost, 53 writes without the lock**, writers colliding on one temporary file) — *validated*. A pair where both halves come out clean is reported *inconclusive*, never as a pass; the race switched off entirely still survives, met and counted |
+| `lockstress` test module | 16 tests, including the discriminant: with a real holder on another thread and the race injected at 100 %, the pre-fix reading is **counted** as writing beside the lock (1 acquisition — the holder's — and 1 unlocked write) while the shipped reading waits, takes the lock and loses nothing |
 | `paper --create --champion` | refused by the critic (exit 1) with the reason on stderr; the refusal is recorded as a lesson |
 | `broker --bars 600` on the real data | 50% order **rejected** on the sealed 5% cap (and the retry with the same `client_id` returned the same refusal); the 4.5% order filled at the next open (62 677.13, costs included) and the 2% hard stop exited it at bar 24 for −9.68; `reconcile: OK`; 1 risk event written |
 | `switch arm` + `broker` | both orders refused ("kill switch is engaged"), 0 positions, 0 fills, `reconcile: OK`; `switch show` exits 1 while engaged |

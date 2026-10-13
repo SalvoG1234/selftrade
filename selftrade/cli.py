@@ -595,6 +595,68 @@ def cmd_stress(args) -> int:
     return 0
 
 
+def cmd_lock_stress(args) -> int:
+    """Soak the session lock: writers heartbeating, an operator stopping, the race injected.
+
+    The command is the instrument, not the fix: it runs the real `Session` in a private
+    temporary directory (never the operator's `state/session.json`), with the Windows lost
+    create race injected, and reports whether a `stop` was overwritten or a write happened
+    beside the lock.  `--compare` runs the same soak with **and** without the pre-fix
+    reading, so a clean result is only called a pass when the injection demonstrably bites;
+    `--legacy` alone runs just the broken reading.  Exit **0** a clean soak (or, for
+    `--legacy`, a defect reproduced), **2** a regression, **3** inconclusive.
+    """
+    from . import lockstress
+
+    shares = (("--race-share", args.race_share), ("--replace-share", args.replace_share))
+    for name, value in shares:
+        if not 0.0 <= float(value) <= 1.0:
+            # A share outside 0..1 would silently switch the injection off and let the soak
+            # report a clean run it never earned.
+            print(f"lock-stress: {name} must be between 0 and 1 (0.15, not 15)", file=sys.stderr)
+            return 2
+
+    options = dict(
+        rounds=args.rounds,
+        writers=args.writers,
+        cycles=args.cycles,
+        race_share=args.race_share,
+        replace_share=args.replace_share,
+        seed=args.seed,
+        budget_s=args.budget,
+    )
+    if args.compare:
+        result = lockstress.compare(**options)
+        if args.json:
+            _print_json(result)
+        else:
+            for line in lockstress.compare_lines(result):
+                print(line)
+        if args.out:
+            out = Path(args.out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(lockstress.render_compare_markdown(result), encoding="utf-8")
+            print(f"  wrote {out}")
+        if result["validated"]:
+            return 0
+        return 2 if result["verdict"] == "regression" else 3
+
+    report = lockstress.run_soak(legacy=args.legacy, **options)
+    if args.json:
+        _print_json(report)
+    else:
+        for line in lockstress.console_lines(report):
+            print(line)
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(lockstress.render_markdown(report), encoding="utf-8")
+        print(f"  wrote {out}")
+    if args.legacy:
+        return 0 if report["verdict"] == "defect" else 3
+    return 0 if report["clean"] else 2
+
+
 def cmd_risk(args) -> int:
     """Show / verify / seal the read-only risk layer - and measure the account against it.
 
@@ -1615,6 +1677,44 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--out")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_stress)
+
+    sp = sub.add_parser(
+        "lock-stress",
+        help="soak the session lock: writers, an operator stop, and the Windows race injected",
+    )
+    sp.add_argument("--rounds", type=int, default=15, help="stop-checks are rounds x cycles")
+    sp.add_argument("--writers", type=int, default=3, help="concurrent heartbeat writers")
+    sp.add_argument("--cycles", type=int, default=3, help="stop/confirm cycles per round")
+    sp.add_argument(
+        "--race-share",
+        type=float,
+        default=0.15,
+        help="share of lock creates that lose the create race (only while another writer "
+        "really holds the lock), as Windows reports it",
+    )
+    sp.add_argument(
+        "--replace-share",
+        type=float,
+        default=0.05,
+        help="share of renames that hit a reader holding the file open",
+    )
+    sp.add_argument("--seed", type=int, default=7)
+    sp.add_argument("--budget", type=float, default=30.0, help="seconds after which rounds stop")
+    sp.add_argument(
+        "--legacy",
+        action="store_true",
+        help="run the pre-fix lock reading (the soak is expected to fail: it proves the "
+        "detector bites)",
+    )
+    sp.add_argument(
+        "--compare",
+        action="store_true",
+        help="run both readings and pass only when the shipped one is clean and the pre-fix "
+        "one is not",
+    )
+    sp.add_argument("--out")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_lock_stress)
 
     sp = sub.add_parser("risk", help="sealed, read-only risk limits")
     sp.add_argument(

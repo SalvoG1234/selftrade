@@ -33,3 +33,11 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Run the suite
         run: python -m pytest -q
+
+      # The suite states the session lock's rules one at a time; this runs the two writers
+      # against each other for real, with the lost create race injected, on both platforms.
+      # A stop overwritten by a writer, or any write performed beside the lock, exits 2.
+      # Deliberately not --compare: the pre-fix control is for a human reading the output,
+      # and a control that does not bite on a given runner would turn CI red for nothing.
+      - name: Soak the session lock
+        run: python -m selftrade lock-stress --rounds 10
