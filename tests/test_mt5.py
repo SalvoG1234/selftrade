@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import sys
 from argparse import Namespace
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -78,12 +79,21 @@ def test_data_source_mt5_uses_override(tmp_path):
     assert len(df) == 400
 
 
-def test_data_source_mt5_without_package_reports_clearly(tmp_path):
+def test_data_source_mt5_without_package_reports_clearly(tmp_path, monkeypatch):
+    """The missing-package path must be explicit whatever this host happens to have.
+
+    A ``None`` entry in :data:`sys.modules` makes ``import MetaTrader5`` raise on every
+    machine, so the assertion tests the *message* instead of the environment: on a box
+    where the Windows-only package is installed the terminal (not the import) is what
+    fails, which is a different error and a different, equally loud one.
+    """
+    monkeypatch.setitem(sys.modules, "MetaTrader5", None)
     s = settings_for(tmp_path)
     s.data.source = "mt5"
     with pytest.raises(mt5mod.MT5Error) as exc:
         load_dataframe(s)
     assert "MetaTrader5" in str(exc.value)
+    assert "pip install" in str(exc.value)
 
 
 # ---------------------------------------------------------------- symbols
