@@ -53,6 +53,52 @@ def test_request_and_status(tmp_path):
     assert s.read()["last_request"]["action"] == "pause"
 
 
+def test_a_write_survives_a_reader_that_holds_the_file_open(tmp_path, monkeypatch):
+    """Windows refuses to rename onto a file another handle has open without share-delete.
+
+    The dashboard polls this file from its own process while the loop writes it, so a
+    sharing violation would throw away a prepared state write - on the platform the
+    project targets.  The error is raised by hand rather than provoked, because on POSIX
+    the rename simply succeeds and a test that can only fail on Windows is a test nobody
+    sees fail.
+    """
+    import selftrade.session as sess
+
+    s = Session(tmp_path / "s.json", poll_interval=0.01)
+    real = os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            err = PermissionError(13, "The process cannot access the file")
+            err.winerror = 32  # ERROR_SHARING_VIOLATION
+            raise err
+        return real(src, dst)
+
+    monkeypatch.setattr(sess.os, "replace", flaky)
+    s.write({"status": "running", "pending": "stop"})
+    assert calls["n"] == 3, "the rename must be retried on a sharing violation"
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["pending"] == "stop"
+
+
+def test_another_permission_error_is_not_retried(tmp_path, monkeypatch):
+    """Only the Windows sharing violation is retried; a real denial is raised at once."""
+    import selftrade.session as sess
+
+    s = Session(tmp_path / "s.json")
+    calls = {"n": 0}
+
+    def denied(src, dst):
+        calls["n"] += 1
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(sess.os, "replace", denied)
+    with pytest.raises(PermissionError):
+        s.write({"status": "running"})
+    assert calls["n"] == 1
+
+
 def test_checkpoint_consumes_stop(tmp_path):
     s = Session(tmp_path / "s.json")
     s.mark_running(generations=5)
@@ -177,31 +223,83 @@ def test_a_stop_survives_the_loops_own_heartbeat_write(tmp_path):
     Both do read-modify-write, so a heartbeat write built from a snapshot taken before the
     operator's ``stop`` arrived used to erase it: the dashboard said "stop requested" and
     the run kept going.  The lock is what makes the two writes indivisible.
+
+    The test only means something while the two writers really do overlap, so it *waits*
+    for the heartbeat instead of counting its beats afterwards: a beat count measures how
+    fast this machine hands out the GIL, and the same code produced nine beats on one CI
+    runner and ten on another - a failure that said nothing about the lock.
     """
     s = Session(tmp_path / "s.json", poll_interval=0.01)
     s.request_start(50, pid=os.getpid())
     writing = threading.Event()
+    beat = threading.Event()
     beats = [0]
 
     def heartbeat():
         while not writing.is_set():
             s.update(lambda st: st.update({"heartbeat": time.time()}) or st)
             beats[0] += 1
+            beat.set()
             time.sleep(0.002)  # the loop's cadence: once a generation, not a spin
 
     t = threading.Thread(target=heartbeat)
     t.start()
     try:
+        assert beat.wait(timeout=30), "the heartbeat writer never wrote - this test would prove nothing"
+        before = beats[0]
         lost = []
         for n in range(25):
             s.request("stop")
             if s.read()["pending"] != "stop":
                 lost.append(n)
+        deadline = time.monotonic() + 30
+        while beats[0] == before and time.monotonic() < deadline:
+            time.sleep(0.005)
     finally:
         writing.set()
         t.join(timeout=5)
-    assert beats[0] > 10, "the heartbeat writer never ran - this test would prove nothing"
+    assert beats[0] > before, "no heartbeat landed while the operator was writing"
     assert lost == [], f"{len(lost)} stop request(s) were overwritten by the loop's own write"
+
+
+def test_a_lost_create_race_is_read_as_a_held_lock_not_a_broken_state_dir(tmp_path, monkeypatch):
+    """Windows answers a lost create race with EACCES, not EEXIST.
+
+    Reading that as "this directory is not writable" let a writer run *without* the lock,
+    and two unlocked read-modify-writes is how an operator's ``stop`` disappears: with that
+    reading, 6 of 40 instrumented rounds lost a stop and writers collided on the same
+    temporary file.  The assertion is the acquisition count, not a duration, so the test
+    states the difference the fix makes instead of trusting a clock: with the bad reading
+    the second attempt never happens, because the writer has already given up on the lock.
+    """
+    import selftrade.session as sess
+
+    s = Session(tmp_path / "s.json", poll_interval=0.01)
+    s.mark_running(generations=1)
+    real_open = os.open
+    seen = {"creates": 0, "acquired": 0}
+
+    def racing_open(path, flags, *args, **kwargs):
+        if Path(path) != s.lock_path or not (flags & os.O_EXCL):
+            return real_open(path, flags, *args, **kwargs)
+        seen["creates"] += 1
+        if seen["creates"] == 1:
+            s.lock_path.write_text("", encoding="utf-8")  # the other writer holds it
+            err = PermissionError(13, "The process cannot access the file")
+            err.winerror = 5  # ERROR_ACCESS_DENIED, as Windows reports a lost race
+            raise err
+        if seen["creates"] == 2:
+            s.lock_path.unlink()  # ...and here it is done and has released it again
+        fd = real_open(path, flags, *args, **kwargs)
+        seen["acquired"] += 1
+        return fd
+
+    monkeypatch.setattr(sess.os, "open", racing_open)
+    s.request("stop")
+    assert seen["creates"] >= 2, "the writer gave up on the lock instead of waiting for it"
+    assert seen["acquired"] == 1, "the write must happen holding the lock, not beside it"
+    assert s.read()["pending"] == "stop"
+    assert not s.lock_path.exists(), "the lock must be released, not left for the next writer"
 
 
 def test_a_lock_left_behind_by_a_dead_process_is_broken(tmp_path):

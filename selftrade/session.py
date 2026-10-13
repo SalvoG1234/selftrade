@@ -31,6 +31,14 @@ LOCK_TIMEOUT_S = 2.0
 LOCK_POLL_S = 0.01
 #: A lock file older than this is a process that died holding it: break it and carry on.
 LOCK_STALE_S = 30.0
+#: Windows refuses a rename while a reader holds the destination open (no share-delete),
+#: which is what ``Path.read_text`` takes, and the readers here are in other processes.
+#: The window is a few instructions wide, so the rename is retried briefly - and only for
+#: that error: a real permission problem must still surface.
+REPLACE_RETRIES = 40
+REPLACE_BACKOFF_S = 0.005
+#: Windows: ERROR_ACCESS_DENIED (5) and ERROR_SHARING_VIOLATION (32).
+SHARING_WINERRORS = (5, 32)
 
 DEFAULT_STATE: dict[str, Any] = {
     "status": "idle",
@@ -44,6 +52,29 @@ DEFAULT_STATE: dict[str, Any] = {
     "heartbeat": None,
     "last_request": None,
 }
+
+
+def replace_file(tmp: Path, dest: Path) -> None:
+    """Rename ``tmp`` over ``dest``, tolerating a reader that holds it open.
+
+    ``os.replace`` is atomic, but on Windows it *fails* - instead of succeeding the way
+    POSIX does - when another handle has the destination open without share-delete, which
+    is exactly the handle ``Path.read_text`` takes.  That reader is real here: the loop
+    writes this file while the dashboard process polls it, so a sharing violation would
+    abort a state write that has already been prepared, on the platform this project
+    targets.  The retry is bounded (a few tens of milliseconds) and covers only that
+    error, so a genuine permission problem is reported at once.
+    """
+    for attempt in range(REPLACE_RETRIES):
+        try:
+            os.replace(tmp, dest)
+            return
+        except PermissionError as exc:
+            if getattr(exc, "winerror", None) not in SHARING_WINERRORS:
+                raise
+            if attempt + 1 >= REPLACE_RETRIES:
+                raise
+            time.sleep(REPLACE_BACKOFF_S)
 
 
 class Session:
@@ -84,7 +115,7 @@ class Session:
         state["updated_at"] = time.time()
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
         tmp.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
-        os.replace(tmp, self.path)
+        replace_file(tmp, self.path)
         return state
 
     def update(self, apply: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
@@ -124,6 +155,9 @@ class Session:
         process that died is broken after :data:`LOCK_STALE_S`, and a holder that outlives
         :data:`LOCK_TIMEOUT_S` is written past rather than waited on (the file itself is
         still replaced atomically, so a reader never sees half a state).
+
+        The existence of the file, not the errno of the create, is what decides whether the
+        lock is held: on Windows a lost create race is reported as ``EACCES``.
         """
         acquired = False
         broke_stale = False
@@ -132,7 +166,19 @@ class Session:
             try:
                 os.close(os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
                 acquired = True
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
+                # Windows answers a *lost create race* with EACCES (``PermissionError``)
+                # instead of ``EEXIST``: two writers reach for the same new lock file at the
+                # same instant and the loser is told the name is not available.  Read as
+                # "this directory is not writable" it sent the writer on *without* the lock,
+                # and two unlocked read-modify-writes is precisely how an operator's ``stop``
+                # gets erased (measured: 6 rounds in 40, plus writers colliding on the same
+                # temporary file).  Even checking whether the lock file exists before
+                # deciding is not safe - the holder can drop it between the failed create and
+                # the check, and that hole still swallowed stops.  So the error is always
+                # read as "held": a persistent EACCES from a state directory we cannot write
+                # to now waits out the deadline instead of failing instantly, and then fails
+                # in the temporary write anyway, which is where that error belongs.
                 # Once only: a lock we cannot remove is one we must stop retrying, or the
                 # loop spins here forever instead of trading.
                 if not broke_stale and self._lock_is_stale():
@@ -142,7 +188,7 @@ class Session:
                 if time.monotonic() >= deadline:
                     break
                 time.sleep(LOCK_POLL_S)
-            except OSError:  # pragma: no cover - a state dir we cannot create files in
+            except OSError:  # pragma: no cover - anything else is not a lock we can take
                 break
         try:
             yield
