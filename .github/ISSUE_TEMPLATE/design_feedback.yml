@@ -1,0 +1,57 @@
+name: Design or direction question
+description: Why is it built this way? Something is confusing, over-claimed or could be much simpler.
+title: "[design] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is a research experiment, not a product, and it is published
+        specifically to be argued with. Use this form for anything that is not a crash:
+        a design you disagree with, a claim you find inflated, a metric you do not
+        trust, a part of the code you had to read twice.
+
+        If the subject is open-ended ("why this way and not that way?"), a
+        [discussion](https://github.com/SalvoG1234/selftrade/discussions) may be a
+        better fit — either is fine.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of feedback is this?
+      options:
+        - Something is unclear (README, docs, output, error message)
+        - A claim looks over-stated or unsupported
+        - The design or the approach is wrong
+        - This is harder to use than it should be
+        - An idea for what to build next
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where did you hit it?
+      description: File, command, page or panel. Links to lines are ideal.
+      placeholder: docs/EXECUTION-AND-RISK-GATE.md, section "Sizing"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What is the issue or the question?
+      description: Be as blunt as you like. "This number means nothing to me" is a complete and useful report.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What would you do instead? (optional)
+      description: A concrete alternative, however rough. Sketches and half-formed ideas welcome.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Context (optional)
+      description: Your background with this domain, if it is relevant to how you are reading the project.
+    validations:
+      required: false

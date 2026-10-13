@@ -1,0 +1,63 @@
+name: Bug report
+description: Something broke, contradicted itself, or cost you time.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for looking closely enough to find this. **Negative feedback is the
+        point of this repository** — "this looks wrong to me" is a useful issue.
+
+        Two commands print the state the program actually sees and make a report much
+        easier to act on:
+
+        ```
+        python -m selftrade doctor
+        python -m selftrade risk verify
+        ```
+  - type: input
+    id: command
+    attributes:
+      label: The command you ran
+      description: Copy it exactly, including flags and the working directory if it matters.
+      placeholder: python -m selftrade backtest --family rsi
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What you thought would happen, and where that expectation came from (README, a doc, an error message).
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: What actually happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Paste the full output or traceback. It is fine to trim repeated lines, but not the first error.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, Python version, how you installed (clone, venv, `setup.ps1`), and whether this is a fresh clone.
+      placeholder: Windows 11 24H2, Python 3.14.5, git clone + python -m venv
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: Anything you already tried (optional)
+      description: Including things that did not help — a dead end is still information.
+    validations:
+      required: false
