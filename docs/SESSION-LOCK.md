@@ -49,6 +49,9 @@ the lock**, writes that **overlapped another writer on the same temporary file**
 creates that found the file already there, creates the *operating system itself*
 denied, races injected, renames retried, reads that could not be taken at all.
 
+The same command also runs in CI on both platforms, after the suite, so the lock is
+exercised the way it failed and not only one rule at a time.
+
 ## The injection, exactly
 
 A lost create race is a few microseconds wide. Left alone it fires now and then
@@ -89,19 +92,23 @@ soak whose injection never bit proved nothing, and saying otherwise is the kind
 of green light this tool exists to refuse. `--legacy` alone exits **0** when it
 reproduces the defect; the plain soak exits **0** clean, **2** on a regression.
 
-## What it measured on Windows 11
+## What it measured
 
 | run | result |
 | --- | --- |
 | `lock-stress` (default) | 15 rounds, 968 writes, **365 create races injected**, **3 creates denied by the operating system itself**, 0 stops overwritten, 0 writes beside the lock, 0 writes overlapping on the temporary file, 9.7 s |
 | `lock-stress --compare` | shipped **clean** (45 checks) vs pre-fix **defect** (33 checks, 2 stops lost, 53 writes without the lock, plus writers colliding on one temporary file); 28 s total |
 | the injection off (`--race-share 0`) | still **clean** — the natural race is met and survived, and the count of creates the OS itself denied is reported rather than confused with an injection |
+| the CI step, both platforms | Windows: 505 writes, 45 races injected, **1 create denied by the operating system itself**, clean in 1.7 s. Ubuntu: 783 writes, 53 races injected, **0 denied by the operating system itself**, clean in 1.1 s — the natural race is a Windows one, and the injection is what exercises that path on Linux at all |
 
-The natural figure is worth reading twice. On this machine, with three writers
+The natural figure is worth reading twice. On Windows, with three writers
 hammering one lock, the operating system denies a create by itself a few times in
 a few thousand — because the ~0.02 % figure quoted when the fix landed was
 measured on a much lighter loop. The defect was not a theoretical race with a
-photographic finish; it was something a busy session could hit in a day.
+photographic finish; it was something a busy session could hit in a day. On Linux
+it is not a few in a few thousand, it is **none**: the same soak, the same load,
+zero creates denied by the kernel, which is why the injection is not a
+convenience but the only thing that takes that path on a Linux runner.
 
 ## What this deliberately does not do
 
