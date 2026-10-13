@@ -1,0 +1,76 @@
+name: Feature request
+description: Ask for a capability this project does not have, and say how anyone could check it works.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |-
+        Use this form for **something the program should be able to do and cannot**. If the
+        subject is "why is it built this way?", a [discussion](https://github.com/SalvoG1234/selftrade/discussions)
+        or the design-feedback form fits better.
+
+        Two standing constraints, so a proposal is not lost to them later:
+
+        - **no live trading.** Nothing in this repository is allowed to send a real order; the
+          rails are a paper broker, a read-only probe and a two-key-gated MT5 bridge.
+        - **no claim without a command.** A feature that produces a number has to state which
+          command produces it, and what the number was before.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What can you not do today?
+      description: The situation you are in and what you have to do instead. Concrete beats general.
+      placeholder: I cannot tell whether a champion is stable across timeframes, so I re-run `backtest` by hand and compare the numbers in two terminals.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should it do instead?
+      description: The behaviour you want, not the implementation. A rough sketch of the command, the page or the output is welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: check
+    attributes:
+      label: How would anyone verify it works?
+      description: The command, page or test that would settle it, and what you would expect to see. "It should feel better" is not checkable; "`foo --x` prints N, and the README row changes" is.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the project?
+      multiple: true
+      options:
+        - Search / evaluation (backtest, walk-forward, holdout, gates)
+        - Risk layer (sealed limits, kill switch, pre-trade gate)
+        - Paper trading and the simulated broker
+        - Dashboard
+        - CLI and reports
+        - Memory, lessons and the reproducibility record
+        - Documentation
+        - Something else (say so above)
+    validations:
+      required: true
+
+  - type: textarea
+    id: cost
+    attributes:
+      label: What would this cost? (optional)
+      description: A new dependency, a slower run, an API key, a Windows-only path, more state on disk. Being explicit here is what prevents "just add it" from becoming a liability.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What else did you consider? (optional)
+      description: Including "do nothing, and document why", which is a legitimate answer for a project this size.
+    validations:
+      required: false

@@ -1,5 +1,16 @@
-# agent workspace metadata
+# agent workspace metadata: local tooling state, never part of the project
 .freebuff/
+.claude/
+
+# editors
+.idea/
+.vscode/
+*.code-workspace
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
 
 # virtualenv / caches
 .venv/
@@ -36,7 +47,6 @@ user_data/strategies/*.py
 *.sqlite3
 *.db
 *.log
-.pytest-junit.xml
 cookies.txt
 
 # test/coverage output

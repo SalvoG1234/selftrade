@@ -2,4 +2,4 @@ blank_issues_enabled: true
 contact_links:
   - name: Open-ended questions about design and direction
     url: https://github.com/SalvoG1234/selftrade/discussions
-    about: Use discussions for "why did you do it this way?" — the two issue forms are for bugs and concrete design feedback.
+    about: Use discussions for "why did you do it this way?" — the issue forms are for bugs, feature requests and concrete design feedback.

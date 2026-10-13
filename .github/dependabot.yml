@@ -1,0 +1,27 @@
+# Dependency updates, monthly and batched.
+#
+# The project keeps its dependency list deliberately short (numpy, pandas, requests, PyYAML,
+# plus pytest and the optional Windows-only MetaTrader5), so this is not about a stream of
+# churn: it is a reminder that the pinned floors in `requirements*.txt` are floors, and that
+# `actions/*` in the workflow are pinned by major version only.
+#
+# Nothing here is applied by itself. A pull request from this config has to pass the same
+# matrix as any other change (Windows + Ubuntu, Python 3.11/3.13/3.14), and the project's
+# rule holds: a dependency bump that changes a recorded number in the README has to say so.
+#
+# Delete this file if the noise outweighs the benefit; nothing else depends on it.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      python-deps:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
