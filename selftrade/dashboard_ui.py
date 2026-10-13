@@ -2284,6 +2284,13 @@ async function renderLab(){
     tile('Passed the gate', fmt(run.passed, 0), run.candidates ? (Math.round((run.passed / run.candidates) * 100) + '% of candidates') : 'N/D', '', 'A candidate passes only if n_trades ≥ min_trades and max_drawdown ≤ the configured cap.'),
     tile('Champion', c.family ? esc(c.family) : 'none', c.fitness != null ? 'fitness ' + fmt(c.fitness, 3) : 'no candidate passed', c.family ? 'ai' : '', 'The best candidate of this run: the strategy family that won, and the fitness it was scored with on the walk-forward folds.'),
     tile('Holdout (OOS)', h.metric_value != null ? fmt(h.metric_value, 3) : 'N/D', h.fold_mean != null ? 'fold mean ' + fmt(h.fold_mean, 3) : 'read once, out of sample', h.metric_value != null && h.fold_mean != null ? sgn(h.metric_value - h.fold_mean) : '', 'The tail of the series read exactly once, at the end. A holdout far better than the folds is flagged as regime luck.'),
+    /* The benchmark beside the out-of-sample number, because that number means nothing
+       without it: a run recorded before the benchmark existed reads N/D rather than a
+       comparison against a figure that was never measured. */
+    tile('vs market', h.excess != null ? ((h.excess >= 0 ? '+' : '') + fmt(h.excess, 3)) : 'N/D',
+      h.baseline_value != null ? ('buy & hold ' + fmt(h.baseline_value, 3)) : 'no benchmark recorded',
+      h.excess != null ? (h.excess >= 0 ? 'ok' : 'bad') : '',
+      'The champion held against simply holding the asset over the same out-of-sample slice, with the same cash and the same entry cost. excess = the strategy metric minus the benchmark metric; a positive holdout on a rising asset is not an edge by itself.'),
     tile('LLM proposals', lab.llm_available ? 'on' : 'off', lab.proposals ? ('llm ' + (lab.proposals.llm || 0) + ' · det ' + (lab.proposals.deterministic || 0) + ' · seed ' + (lab.proposals.seed || 0)) : 'N/D', '', 'Whether Ollama was reachable this run and where the proposals came from. The LLM never writes trading logic - it proposes bounded genome changes only.')
   ].join(''));
 

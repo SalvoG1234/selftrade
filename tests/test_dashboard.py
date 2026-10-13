@@ -1549,7 +1549,9 @@ def test_lab_endpoint_joins_the_run_with_its_report(ctx, tmp_path):
         "proposals": {"llm": 1, "deterministic": 0, "seed": 1},
         "champion": genome_b, "champion_fitness": 0.4,
         "holdout": {"metric": "sharpe", "metric_value": 0.2, "fold_mean": 0.3,
-                    "fold_values": [0.1, 0.3], "n_trades": 9},
+                    "fold_values": [0.1, 0.3], "n_trades": 9,
+                    "baseline": {"total_return": -0.13, "sharpe": 0.01},
+                    "baseline_value": 0.01, "baseline_return": -0.13, "excess": 0.19},
         "critic": {"approved": False, "text": "refused", "reasons": ["too much drawdown"],
                    "warnings": [], "checks": []},
         "autopsy": {"summary": "72 losers", "n_losers": 72, "worst": [], "modes": []},
@@ -1591,6 +1593,10 @@ def test_lab_endpoint_joins_the_run_with_its_report(ctx, tmp_path):
     assert "too much drawdown" in lab["critic"]["reasons"]
     assert lab["autopsy"]["n_losers"] == 72
     assert lab["holdout"]["metric_value"] == pytest.approx(0.2)
+    # the benchmark travels with the out-of-sample number, all the way to the panel
+    assert lab["holdout"]["baseline_value"] == pytest.approx(0.01)
+    assert lab["holdout"]["excess"] == pytest.approx(0.19)
+    assert lab["holdout"]["baseline"]["total_return"] == pytest.approx(-0.13)
 
 
 def test_lab_endpoint_picks_the_latest_run_and_survives_a_missing_report(ctx):
@@ -2205,6 +2211,17 @@ def test_the_risk_center_owns_the_stop_the_limits_and_the_alerts(ctx):
     assert body.index("refreshSwitch()") < body.index("refreshRisk()") < body.index("refreshAlerts()")
     # and the stop kept its explicit confirmation on the page it now lives on
     assert "confirm: true" in html and "async function refreshSwitch()" in html
+
+
+def test_the_lab_summary_states_the_benchmark_and_admits_when_there_is_none(ctx):
+    """The lab's out-of-sample tiles: the excess, and `N/D` for a run recorded before it."""
+    html = _page_html(ctx)
+    assert "tile('vs market'" in html
+    assert "h.excess != null" in html
+    assert "h.baseline_value != null" in html
+    assert "no benchmark recorded" in html
+    # a report without the benchmark must not invent a comparison
+    assert "h.excess != null ? ((h.excess >= 0 ? '+' : '') + fmt(h.excess, 3)) : 'N/D'" in html
 
 
 def test_the_router_paints_the_new_pages_and_the_old_views_still_render(ctx):
