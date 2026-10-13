@@ -2154,19 +2154,19 @@ def test_every_page_declared_in_the_titles_has_a_view_and_a_nav_item(ctx):
     html = _page_html(ctx)
     titles = html[html.index("const TITLES = "):].split("};", 1)[0]
     declared = re.findall(r"(\w+):'[^']+'", titles)
-    assert len(declared) == 10, declared
+    assert len(declared) == 11, declared
     for name in declared:
         assert f'data-view="{name}"' in html, name          # reached from the sidebar
         _view(html, name)                                     # and it exists as a panel
     # the sidebar offers exactly those pages, in a deliberate order: nothing else is clickable
     nav = html[html.index('<nav class="nav"'):html.index("</nav>")]
     assert re.findall(r'data-view="(\w+)"', nav) == [
-        "overview", "market", "lab", "backtest", "trading", "risk", "agents", "memory",
-        "logs", "settings",
+        "overview", "market", "lab", "backtest", "trading", "capital", "risk", "agents",
+        "memory", "logs", "settings",
     ]
     # every nav item is a real button that routes through setView, not a dead label
-    assert nav.count('class="nav-item') == 10
-    assert nav.count("onclick=\"setView('") == 10
+    assert nav.count('class="nav-item') == 11
+    assert nav.count("onclick=\"setView('") == 11
 
 
 def test_the_sidebar_groups_the_pages_the_way_the_brief_asks(ctx):
@@ -2226,15 +2226,35 @@ def test_the_lab_summary_states_the_benchmark_and_admits_when_there_is_none(ctx)
 
 def test_the_router_paints_the_new_pages_and_the_old_views_still_render(ctx):
     html = _page_html(ctx)
-    for name in ("renderMarketPage", "renderRiskCenter", "renderTrading", "renderOverview"):
+    for name in ("renderMarketPage", "renderRiskCenter", "renderCapitalPage", "renderTrading",
+                 "renderOverview"):
         assert f"async function {name}()" in html, name
     assert "else if(S.view === 'market') await renderMarketPage();" in html
+    assert "else if(S.view === 'capital') await renderCapitalPage();" in html
     assert "else if(S.view === 'risk') await renderRiskCenter();" in html
     # the panels are all still rendered: a split that dropped one would show here
     for fn in ("refreshCapital", "refreshKey", "refreshSwitch", "refreshRisk", "refreshAlerts",
                "refreshMarket", "refreshStatus"):
         assert f"async function {fn}(" in html, fn
-    # the capital account and the key probe stayed with the rail they belong to
+    # the key probe and the paper session stayed with the rail they belong to
     trading = _view(html, "trading")
-    assert 'id="cap-card"' in trading and 'id="bk-card"' in trading
-    assert 'id="tr-session"' in trading
+    assert 'id="bk-card"' in trading and 'id="tr-session"' in trading
+
+
+def test_the_capital_page_owns_the_top_up_and_says_what_it_is(ctx):
+    """The account is its own menu entry, funded by a ledger row - and the page says so."""
+    html = _page_html(ctx)
+    capital = _view(html, "capital")
+    for anchor in ('id="cap-card"', 'id="cap-tiles"', 'id="cap-amount"', 'id="cap-reason"',
+                   'id="cap-deposit"', 'id="cap-withdraw"', 'id="cap-allocate"',
+                   'id="cap-release"', 'id="cap-ledger"', 'id="cap-notes"'):
+        assert anchor in capital, anchor
+    assert 'id="cap-card"' not in _view(html, "trading")
+    body = _js(html, "renderCapitalPage")
+    assert "await refreshCapital();" in body
+    # the top-up is a local row, and the page must not let it read like a payment
+    assert "capital.py" in body and "no HTTP client" in body
+    assert "paper session" in body and "comes from Binance" in body
+    assert "/api/killswitch" not in body and "method:'POST'" not in body
+    # the movements keep the backend's confirm gate: the page asks before it writes
+    assert "function capAsk(" in html and "capGo()" in html

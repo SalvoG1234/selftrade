@@ -344,6 +344,10 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
         data-tip="Paper Trading: the simulated session - orders, positions, fees, equity - plus the Binance key probe and the capital account this rail would risk.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l5-5 3 3 4-7 6 6"/><path d="M3 21h18"/></svg>
         <span class="lbl">Paper Trading</span></button>
+      <button class="nav-item" data-view="capital" onclick="setView('capital')"
+        data-tip="Capital: the simulated account and its append-only ledger - credit money, fund a paper session, withdraw, and read every movement with the reason it was made for.">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v20"/><path d="M17 6.5c-.9-1.2-2.6-2-4.6-2-2.6 0-4.4 1.3-4.4 3.2 0 2.1 2 2.8 4.6 3.4 2.6.6 4.6 1.3 4.6 3.4 0 1.9-1.9 3.2-4.6 3.2-2.2 0-4-.8-5-2.2"/></svg>
+        <span class="lbl">Capital</span></button>
       <button class="nav-item" data-view="risk" onclick="setView('risk')"
         data-tip="Risk Center: the emergency stop, the sealed limits with the room left before each one trips, and what the alert channel actually sent.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7.5 2.8v6.4c0 4-3.2 7.4-7.5 8.8-4.3-1.4-7.5-4.8-7.5-8.8V5.8z"/><path d="M12 8.5v3.2M12 15h.01"/></svg>
@@ -457,30 +461,7 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
           <div class="card-b" id="bk-body"><span class="muted">…</span></div>
         </div>
 
-        <div class="card" id="cap-card">
-          <div class="card-h"><h2 data-tip="The simulated account the agents trade, and the only money this program moves. Every movement is a ledger row with a reason; no agent can credit itself.">Capital account</h2><span class="spacer"></span><span class="muted" id="cap-status">loading…</span></div>
-          <div class="card-b">
-            <div class="tiles" id="cap-tiles"></div>
-            <div class="toolbar">
-              <label class="fld">Amount <span class="search"><span class="mag">⌕</span><input id="cap-amount" size="10" inputmode="decimal" spellcheck="false" aria-label="Amount" oninput="capButtons()" data-tip="How much simulated capital this movement is for, in the account's currency. The policy caps in funding: decide the largest credit the account will accept."></span></label>
-              <label class="fld">Reason <span class="search"><span class="mag">⌕</span><input id="cap-reason" size="26" spellcheck="false" placeholder="why this movement exists — it is kept in the ledger" aria-label="Reason" oninput="capButtons()" data-tip="Why this credit or withdrawal exists. It is stored in the ledger beside the balance it left behind, so the account can be audited later."></span></label>
-              <button class="btn sm primary" id="cap-deposit" onclick="capAsk('deposit')" disabled data-tip="Adds simulated capital to the free balance of the account — a ledger row, not a payment. The agents cannot do this; only an operator with a reason can.">credit capital</button>
-              <button class="btn sm" id="cap-withdraw" onclick="capAsk('withdraw')" disabled data-tip="Takes simulated capital back out of the free balance, if funding.allow_withdrawal permits it. Recorded as a ledger row with the reason you give.">withdraw</button>
-              <button class="btn sm" id="cap-allocate" onclick="capAsk('allocate')" disabled data-tip="Moves capital from the free balance into the paper session, where the agents trade it through the same pre-trade risk gate as everything else.">fund the session</button>
-              <button class="btn sm ghost" id="cap-release" onclick="capAsk('release')" disabled data-tip="Takes capital back from the paper session into the free balance when the session is over.">release</button>
-              <span class="spacer"></span>
-              <button class="btn sm ghost" onclick="refreshCapital()" data-tip="Re-reads the account and its ledger from the local database.">refresh</button>
-            </div>
-            <div class="toolbar hidden" id="cap-confirm">
-              <span class="warn" id="cap-confirm-text"></span>
-              <button class="btn sm primary" id="cap-go" onclick="capGo()" data-tip="Writes the movement to the ledger with the reason you gave. Simulated capital only \u2014 no exchange, no key, no order.">confirm</button>
-              <button class="btn sm ghost" onclick="capCancel()" data-tip="Abandons this movement: no ledger row is written and the balance is untouched.">cancel</button>
-            </div>
-            <div class="card-b tight" id="cap-ledger"></div>
-            <div class="pager" id="cap-ledger-pager"></div>
-            <div class="card-sub">A <b>simulated</b> account: crediting it records a local ledger row and funds the paper session, where the agents trade it through the same risk gate as everything else. No exchange, no key and no order is involved, and <b>no agent can credit itself</b> — a movement needs an operator, a reason and a confirmation. The sealed 5% per position and 15% drawdown still bind on funded capital.</div>
-          </div>
-        </div>          <div class="grid">
+                  <div class="grid">
           <div class="card col-4">
             <div class="card-h"><h2 data-tip="The forward paper session: the strategy's signals become orders on the simulated rail, sized at the sealed cap and funded from the capital ledger.">Paper session</h2></div>
             <div class="card-b" id="tr-session"></div>
@@ -521,6 +502,38 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
         <div class="card">
           <div class="card-h"><h2 data-tip="What this page is and what it is not: public market data, keyless, read-only. No account, no order, ever.">Read-only market data</h2></div>
           <div class="card-b"><div id="mk-notes" class="muted"></div></div>
+        </div>
+      </section>
+
+      <!-- ============================= CAPITAL =========================== -->
+      <section class="view" data-view="capital">
+<div class="card" id="cap-card">
+          <div class="card-h"><h2 data-tip="The simulated account the agents trade, and the only money this program moves. Every movement is a ledger row with a reason; no agent can credit itself.">Capital account</h2><span class="spacer"></span><span class="muted" id="cap-status">loading…</span></div>
+          <div class="card-b">
+            <div class="tiles" id="cap-tiles"></div>
+            <div class="toolbar">
+              <label class="fld">Amount <span class="search"><span class="mag">⌕</span><input id="cap-amount" size="10" inputmode="decimal" spellcheck="false" aria-label="Amount" oninput="capButtons()" data-tip="How much simulated capital this movement is for, in the account's currency. The policy caps in funding: decide the largest credit the account will accept."></span></label>
+              <label class="fld">Reason <span class="search"><span class="mag">⌕</span><input id="cap-reason" size="26" spellcheck="false" placeholder="why this movement exists — it is kept in the ledger" aria-label="Reason" oninput="capButtons()" data-tip="Why this credit or withdrawal exists. It is stored in the ledger beside the balance it left behind, so the account can be audited later."></span></label>
+              <button class="btn sm primary" id="cap-deposit" onclick="capAsk('deposit')" disabled data-tip="Adds simulated capital to the free balance of the account — a ledger row, not a payment. The agents cannot do this; only an operator with a reason can.">credit capital</button>
+              <button class="btn sm" id="cap-withdraw" onclick="capAsk('withdraw')" disabled data-tip="Takes simulated capital back out of the free balance, if funding.allow_withdrawal permits it. Recorded as a ledger row with the reason you give.">withdraw</button>
+              <button class="btn sm" id="cap-allocate" onclick="capAsk('allocate')" disabled data-tip="Moves capital from the free balance into the paper session, where the agents trade it through the same pre-trade risk gate as everything else.">fund the session</button>
+              <button class="btn sm ghost" id="cap-release" onclick="capAsk('release')" disabled data-tip="Takes capital back from the paper session into the free balance when the session is over.">release</button>
+              <span class="spacer"></span>
+              <button class="btn sm ghost" onclick="refreshCapital()" data-tip="Re-reads the account and its ledger from the local database.">refresh</button>
+            </div>
+            <div class="toolbar hidden" id="cap-confirm">
+              <span class="warn" id="cap-confirm-text"></span>
+              <button class="btn sm primary" id="cap-go" onclick="capGo()" data-tip="Writes the movement to the ledger with the reason you gave. Simulated capital only \u2014 no exchange, no key, no order.">confirm</button>
+              <button class="btn sm ghost" onclick="capCancel()" data-tip="Abandons this movement: no ledger row is written and the balance is untouched.">cancel</button>
+            </div>
+            <div class="card-b tight" id="cap-ledger"></div>
+            <div class="pager" id="cap-ledger-pager"></div>
+            <div class="card-sub">A <b>simulated</b> account: crediting it records a local ledger row and funds the paper session, where the agents trade it through the same risk gate as everything else. No exchange, no key and no order is involved, and <b>no agent can credit itself</b> — a movement needs an operator, a reason and a confirmation. The sealed 5% per position and 15% drawdown still bind on funded capital.</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h2 data-tip="What a credit here is, what it funds, and what it never touches. The ledger is local; the real rails read their own balance.">What a top-up is, and what it is not</h2></div>
+          <div class="card-b"><div id="cap-notes" class="muted"></div></div>
         </div>
       </section>
 
@@ -808,11 +821,11 @@ const REFRESH = __REFRESH__ * 1000;      /* panels */
 const MK_REFRESH = __MK_REFRESH__ * 1000; /* live market chart */
 const KEY_REFRESH = __KEY_REFRESH__ * 1000;
 
-const VIEWS = ['overview', 'market', 'trading', 'lab', 'backtest', 'risk', 'agents',
-  'memory', 'logs', 'settings'];
+const VIEWS = ['overview', 'market', 'trading', 'capital', 'lab', 'backtest', 'risk',
+  'agents', 'memory', 'logs', 'settings'];
 const TITLES = {overview:'Overview', market:'Market', trading:'Paper Trading',
-  lab:'Strategy Lab', backtest:'Experiments', risk:'Risk Center', agents:'Agent & Memory',
-  memory:'Memory & Knowledge', logs:'System Logs', settings:'System'};
+  capital:'Capital', lab:'Strategy Lab', backtest:'Experiments', risk:'Risk Center',
+  agents:'Agent & Memory', memory:'Memory & Knowledge', logs:'System Logs', settings:'System'};
 
 const S = {
   authed: false, started: false, view: 'overview',
@@ -1087,6 +1100,7 @@ async function renderActive(){
     if(S.view === 'overview') await renderOverview();
     else if(S.view === 'market') await renderMarketPage();
     else if(S.view === 'trading') await renderTrading();
+    else if(S.view === 'capital') await renderCapitalPage();
     else if(S.view === 'risk') await renderRiskCenter();
     else if(S.view === 'lab') await renderLab();
     else if(S.view === 'agents') await renderAgents();
@@ -2057,6 +2071,21 @@ async function renderMarketPage(){
   if(notes) notes.textContent = 'Candles and 24h stats come from the public Binance '
     + 'feed - keyless, read-only, cached server-side. No account is involved and this '
     + 'page cannot place, change or cancel anything.';
+}
+async function renderCapitalPage(){
+  /* The account and its ledger, with the same confirm-gated movements the CLI's `capital`
+     command makes. The note states what a credit is: a local row that funds a paper
+     session. The real rails do not read this ledger and this page does not pretend
+     otherwise - a Binance balance comes from Binance. */
+  await refreshCapital();
+  const notes = $('cap-notes');
+  if(notes) notes.innerHTML = 'A credit here is a row in a local ledger, not a payment: '
+    + '<b>selftrade/capital.py</b> imports no HTTP client, no socket and no exchange module, '
+    + 'and a test parses the file to keep it that way. What it changes is the capital a '
+    + '<b>paper session</b> trades, and therefore how large its positions are. The real rails '
+    + 'do not read it: a Binance balance comes from Binance, and no credit here changes what '
+    + 'an exchange will let you trade. Every movement needs an amount, a reason and a '
+    + 'confirmation, and no agent can credit itself.';
 }
 async function renderRiskCenter(){
   /* The stop first, because it must never be shown stale, then the room left under the

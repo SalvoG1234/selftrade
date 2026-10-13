@@ -491,23 +491,26 @@ curl.exe -b cookies.txt -X POST http://127.0.0.1:8787/api/control -H "Content-Ty
 
 The page is a single inline document (`selftrade/dashboard_ui.py`, imported by
 `dashboard.py` so the server logic stays separate from the presentation) with a
-collapsible sidebar, a top status bar and ten hash-routed views, grouped in the rail as
+collapsible sidebar, a top status bar and eleven hash-routed views, grouped in the rail as
 **Market** (Overview, Market), **Research** (Strategy Lab, Experiments), **Trading &
-risk** (Paper Trading, Risk Center), **Agent** (Agent & Memory, Memory & Knowledge) and
-**System** (System Logs, System). A dark theme is the default; a light theme is one token
+risk** (Paper Trading, Capital, Risk Center), **Agent** (Agent & Memory, Memory &
+Knowledge) and **System** (System Logs, System). A dark theme is the default; a light theme is one token
 override behind the **theme** button. Green and red mean a positive and a negative
 change and nothing else; cyan/violet mark the AI surfaces.
 
 A page holds one kind of thing. The Market page reads public prices and writes nothing;
 the Risk Center owns the stop and the limits it would engage; Paper Trading owns the
-simulated rail and the capital it risks. A card is not duplicated between pages: it moved
-when its subject did, so a reader never has to guess which copy is the live one.
+simulated rail and the session it runs; **Capital** owns the account that rail is funded
+from, so topping it up is a menu entry rather than the third card on the rail page. A card
+is not duplicated between pages: it moved when its subject did, so a reader never has to
+guess which copy is the live one.
 
 | View | What it answers | Endpoints it reads |
 | --- | --- | --- |
 | **Overview** | equity, P&L, drawdown, trades, market, engine and agent state, the last improvement cycle, recent activity — with a **manual refresh** (and a last-updated stamp) and the market symbol/interval the Market page shares | `/api/overview`, `/api/paper`, `/api/equity`, `/api/risk`, `/api/session`, `/api/trades`, `/api/lab`, `/api/logs`, `/api/market` |
 | **Market** | the live public chart — pair, interval, last price, 24h change, **24h high/low/volume/quote volume/trades**, the feed status, latency and fetch timestamp — and an explicit statement of what the page is not: no key, no account, no order. Its pair/interval is the one the Overview shows (one shared selection) | `/api/market` |
-| **Paper Trading** | the Binance key probe, the **capital account** (balance, what was credited and allocated, the ledger, and one confirm-gated movement at a time), the paper session, positions/exposure and the trade log — the rail and what it risks, without the market chart or the risk panels | `/api/binance`, `/api/capital`, `/api/paper`, `/api/trades` |
+| **Paper Trading** | the Binance key probe, the paper session, positions/exposure and the trade log — the rail and what it runs, without the market chart, the account or the risk panels | `/api/binance`, `/api/paper`, `/api/trades` |
+| **Capital** | the **account that funds the paper rail**: free balance, what was credited / withdrawn / allocated, the per-credit cap and total ceiling, one confirm-gated movement at a time (credit, withdraw, fund the session, release) and the append-only ledger with the reason on every row. A card spells out what a top-up is and is not: a local row, no exchange, no key, no order — the real rails read their own balance, not this ledger (`docs/CAPITAL.md`) | `/api/capital`, `POST /api/capital` |
 | **Risk Center** | the **emergency stop** (state first — it must never be the panel left stale by a slow neighbour), the **risk limits** measured against the sealed caps with the room left and what a breach would do, and the **alerts** card: what the channel actually delivered. The stop keeps its confirm-gated arm/reset and its audit records | `/api/killswitch`, `/api/risk`, `/api/alerts` |
 | **AI Lab** | the Collect → Hypothesize → Backtest → Validate → Paper-trade → Learn cycle, the run summary, the reproducibility record, the critic verdict, the autopsy, the version history with its diffs and the per-experiment table — and a **re-run & compare** on each version, which re-evaluates that exact genome on the folds window and says whether its stored fitness reproduces | `/api/lab`, `/api/backtest` |
 | **Agent & Memory** | the subsystems the program actually runs, their real state, dependencies, last activity and error counts — with its own copy of the loop controls (start/pause/resume/stop), a refresh, and a row that expands into *where each state came from* | `/api/session`, `/api/risk`, `/api/alerts`, `/api/binance`, `/api/market`, `/api/lab`, `/api/logs` |
@@ -587,13 +590,15 @@ and a generation-0 seed has no parent at all (`has_parent: false`).
 
 ### How the pages are kept apart
 
-Five tests in `tests/test_dashboard.py` read the served HTML as a contract: every view
+Six tests in `tests/test_dashboard.py` read the served HTML as a contract: every view
 declared in `TITLES` must have a panel and a nav item, the sidebar must offer exactly
-those ten pages in its five groups, the Market page must own the chart (`#mk-*`, `#chart`)
+those eleven pages in its five groups, the Market page must own the chart (`#mk-*`, `#chart`)
 and its renderer must send no POST, the Risk Center must own the stop, the limits and the
-alerts with the stop refreshed first, and the router must dispatch both new pages while
-the old ones still render. A panel moved without a page to receive it, or a page added
-without a route, fails the suite instead of waiting to be noticed.
+alerts with the stop refreshed first, the Capital page must own the account card and say on
+the page that a credit is a local ledger row (never a POST to a stop or a rail), and the
+router must dispatch the new pages while the old ones still render. A panel moved without a
+page to receive it, or a page added without a route, fails the suite instead of waiting to
+be noticed.
 
 ### What the pages deliberately do **not** show
 

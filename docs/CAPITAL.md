@@ -14,6 +14,13 @@ python -m selftrade paper --all                          # the agents trade it
 python -m selftrade capital ledger                       # every movement, newest first
 ```
 
+The dashboard's **Capital** entry (`#/capital`) does the same four movements through the
+same module: amount, reason, an explicit confirmation that reads both back before anything
+is written, and the ledger below with the balance each row left behind. The page carries the
+same sentence this document opens with - a credit is a ledger row, not a payment - so nobody
+"tops up" expecting an exchange to notice. The two interfaces share one table, so
+`capital status` in a terminal and the tiles in the browser cannot disagree.
+
 `docs/PAPER-TRADING.md` describes what happens after the money is in the session; this
 document describes the account, its rules and its audit trail.
 
