@@ -100,6 +100,10 @@ Questions of the form "will this make money" are the one kind this project canno
 answer, and the README says why: the honest out-of-sample result on the default
 data is a loss.
 
+If you want to point other people at it, [docs/LAUNCH.md](docs/LAUNCH.md) is the launch kit: the
+claims that have a command behind them (and the four that must never be made), the rules of the
+communities worth posting to, paste-ready drafts, and what to do with the replies.
+
 ## Quick start
 
 ```powershell
@@ -336,7 +340,7 @@ funding a fantasy account - and the sealed 5% / 15% caps bind on funded capital 
 
 | Check | Result |
 | --- | --- |
-| `python -m pytest` | **661 of 662 pass**, 30 files (junit-xml cross-check). The one failure is environmental, not a regression: `tests/test_mt5.py::test_data_source_mt5_without_package_reports_clearly` expects the "MetaTrader5 package is missing" error, but this machine **has** the package installed, so it gets a different (still clear) error — the terminal is not installed. `mt5.py` and its test are untouched. |
+| `python -m pytest` | **785 pass, exit 0**, 32 test files. An earlier environmental failure in `tests/test_mt5.py` (the test expecting the "MetaTrader5 package is missing" error on a machine that has the package) does not reproduce in this run: `pytest -q tests/test_mt5.py` is green too, and the same suite passes in CI on Windows and Ubuntu. |
 | `data --fetch --rows 18000` | 18 000 **real** BTC/USDT 4h candles from the public mirror, 2018-07-23 → 2026-10-10, close 7 733.74 → 82 819.29, written to `data/BTCUSDT_4h.csv` (50 s, 18 paged requests) |
 | `evolve --generations 12 --no-llm` on that data | 120 candidates, 12 report generations; fold-mean Sharpe 0.886 for the champion, **holdout read #1 Sharpe −0.55 → the holdout rejected it** |
 | `invest --champion --window holdout` | 10 000 → 8 456 USDT (−15.4%, CAGR −9.70%, DD 28.4%) vs buy & hold 8 608 USDT (−13.9%, DD 53.4%); 90 trades, 20% win rate, 2 472 USDT of costs; zero-cost counterfactual +9.3% |
