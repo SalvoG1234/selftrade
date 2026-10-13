@@ -1,5 +1,9 @@
 # Windows 11 setup
 
+This page is the environment: Python, the virtualenv, PowerShell, the optional extras. For the
+**first run, start to finish** — install, real prices, one search, the dashboard, the tests, and
+the failure modes that actually come up — read [`QUICKSTART.md`](QUICKSTART.md) instead.
+
 ## Prerequisites
 
 - Python **3.11+** (64-bit) on `PATH` (`python` or the `py` launcher).

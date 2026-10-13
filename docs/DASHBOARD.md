@@ -4,6 +4,26 @@ A dashboard served by the Python standard library: a **login**, a **live Binance
 chart**, a **Binance key panel**, an **emergency stop**, a **risk-limits panel**, the
 **loop controls** (which start and steer the tracked loop for real) and the bot panels.
 
+## What it looks like
+
+These are real captures of a running server on `127.0.0.1`, rendering a copy of this project's
+own `state/selftrade.db` — 7 runs, 592 candidates, one paper session with 90 trades and 105
+strategy versions. Nothing below is a mock-up, and the numbers on screen are the ones
+[`../docs/VERIFICATION.md`](VERIFICATION.md) records:
+
+| | |
+| --- | --- |
+| ![Overview](img/dashboard-overview.png) | ![Risk Center](img/dashboard-risk-center.png) |
+| **Overview** — equity, the drawdown against the sealed cap, the six-stage cycle, the equity curve | **Risk Center** — the emergency stop and the limits it answers to |
+| ![API keys](img/dashboard-api-keys.png) | ![AI Lab](img/dashboard-ai-lab.png) |
+| **API keys** — where each credential comes from, and the one write on the page | **AI Lab** — the cycle, the reproducibility record, the critic and the version history |
+| ![Paper Trading](img/dashboard-paper-trading.png) | ![Market](img/dashboard-market.png) |
+| **Paper Trading** — the forward session and the read-only key probe | **Market** — keyless public candles, and no key to leak |
+
+To reproduce a capture: start the server against a database you are willing to have read, then
+open the page at `1440×900` with the sidebar expanded. `docs/img/` is where they live, and
+regenerating them is expected when a page changes — a stale screenshot is a small lie.
+
 ```powershell
 .\dashboard.ps1
 # or: python -m selftrade serve --host 127.0.0.1 --port 8787
