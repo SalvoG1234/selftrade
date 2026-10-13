@@ -61,8 +61,33 @@ def test_parser_has_all_commands():  # noqa: D103
     assert {
         "doctor", "data", "backtest", "evolve", "report", "hall", "export",
         "rea", "mcp", "mt5", "paper", "invest", "autopsy", "critic", "risk",
-        "serve", "session", "broker", "switch", "binance", "notify",
+        "serve", "session", "broker", "switch", "binance", "notify", "verify",
     } <= names
+
+
+def test_verify_without_ledger_says_what_to_ask_for(capsys):  # noqa: D103
+    code = main(["verify"])
+    assert code == 2
+    assert "verify --ledger" in capsys.readouterr().err
+
+
+def test_verify_ledger_checks_this_checkout(capsys):  # noqa: D103
+    """The command's own contract: exit 0 when the documents agree with the suite."""
+    code = main(["verify", "--ledger"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "measured" in out
+    assert "every recorded count matches the measurement" in out
+
+
+def test_verify_ledger_json_is_machine_readable(capsys):
+    import json
+
+    assert main(["verify", "--ledger", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["facts"]["total"] >= 100
+    assert payload["slots"]
 
 
 def test_globals_extracted_from_any_position():

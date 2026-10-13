@@ -22,6 +22,7 @@ remembers what happened — good *and* bad. It never trades real money by defaul
 | `freqtrade_export.py` | Export a self-contained freqtrade strategy. |
 | `risk_rules.py` | The sealed risk layer: frozen limits, SHA-256 pin, `MODEL_CAN_OVERRIDE = False`, reachable by no config key, genome or env var. |
 | `critic.py` | The deployment verdict: hard checks against the sealed limits plus recorded warnings. |
+| `ledger.py` | The machine-written half of `docs/VERIFICATION.md`: it measures the suite (a two-second `pytest --collect-only`, or a real run read back from the JUnit report) and holds every whole-suite count in the repository's documents to that measurement — the counts are written into marked fragments instead of typed, and the count a person forgot is caught wherever it lives. Deliberately does **not** generate the research numbers: those are outputs of `evolve`/`invest`/`stress`, and each row already names the command that produced it. |
 | `autopsy.py` | Post-mortem of the losers: worst losses with causal entry context, clustered failure modes, overfit caveats, lesson for the memory. |
 | `stress.py` | The other two questions about a single run: Monte Carlo over the closed trade sequence (`bootstrap`/`shuffle`/`block`, percentiles reproducible for a seed, path digest) and ±δ parameter sensitivity with the clamps reported and the degradation measured; report + lesson, never fed back into `evolve`. |
 | `invest.py` | Money simulation on real prices: equity vs buy & hold, measured cost drag, per-year table, inline-SVG charts, md/HTML/JSON reports. |

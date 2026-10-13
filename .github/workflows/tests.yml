@@ -55,6 +55,15 @@ jobs:
       - name: Run the suite
         run: python -m pytest -q
 
+      # The suite size is quoted in the README, CONTRIBUTING, the verification ledger, the launch
+      # kit and the social card, and a hand-typed number repeated five times is a number nobody
+      # owns: every copy of it had drifted when `verify --ledger` was written. This collects the
+      # suite (about two seconds) and fails if any of those counts disagrees with it. The matrix is
+      # what makes it complete - the job on 3.13 is the one that enforces the fragment recorded on
+      # 3.13, and the job on 3.14 the fragment recorded on 3.14.
+      - name: Hold the documentation to the suite
+        run: python -m selftrade verify --ledger
+
       # The suite states the session lock's rules one at a time; this runs the two writers
       # against each other for real, with the lost create race injected, on both platforms.
       # A stop overwritten by a writer, or any write performed beside the lock, exits 2.

@@ -3,6 +3,9 @@
 Documento di lavoro. Il codice e la documentazione del repository restano in inglese;
 questo piano è in italiano perché è una decisione da prendere, non codice.
 
+<!-- ledger: historical: i numeri qui sotto fotografano l'albero al momento in cui il piano è
+     stato scritto, non la suite di oggi, e il controllo del ledger li ignora di proposito. -->
+
 ## FASE 1 — Ispezione: cosa c'è davvero
 
 Ambiente verificato: Windows 11 (MINGW64_NT-10.0-26300), venv con **Python 3.14.5**,

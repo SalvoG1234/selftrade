@@ -753,6 +753,70 @@ def cmd_risk(args) -> int:
     return 1
 
 
+def cmd_verify(args) -> int:
+    """The verification ledger: the suite count is measured, and the documentation is held to it.
+
+    ``--ledger`` collects the suite (about two seconds, no key, no network, no data file) and then
+    requires that **every** whole-suite count in the documentation equals what it measured, marked
+    or not: the README, `CONTRIBUTING.md`, the ledger, the launch kit and the social card. Exit
+    **0** when they agree, **1** when a number has drifted, **2** when the suite could not be
+    measured at all. ``--write`` records a run instead - it executes the suite and rewrites each
+    marked fragment - and ``--run`` executes it without writing anything.
+
+    This is deliberately *not* a checker for the research numbers. The holdout Sharpe, the drawdown
+    and the cost drag come out of ``evolve``/``invest``/``stress``, cost minutes to reproduce, and
+    each one already names the command that produces it. What is generated here is the fact that is
+    a pure function of the working tree, which is the one that goes stale without anyone noticing.
+    """
+    from . import ledger
+
+    if not getattr(args, "ledger", False):
+        print("verify: nothing to check; use `verify --ledger`", file=sys.stderr)
+        return 2
+    root = Path(__file__).resolve().parent.parent
+    if not (root / "docs" / "VERIFICATION.md").exists():
+        print(
+            f"verify: docs/VERIFICATION.md not found under {root} - this checks a checkout, not "
+            "an installed package",
+            file=sys.stderr,
+        )
+        return 2
+    force = bool(getattr(args, "force", False))
+    try:
+        if getattr(args, "write", False):
+            # Two phases inside one command: see ledger.record for why the run cannot come first.
+            outcome = ledger.record(root, force=force)
+            for entry in outcome["written"]:
+                print(f"  wrote {entry['file']} ({', '.join(entry['slots'])})")
+            for entry in outcome["skipped"]:
+                print(f"  left  {entry['file']} {entry['slot']}: {entry['reason']}")
+            report = outcome["report"]
+            ran = outcome["ran"]
+            if ran["exit_code"] != 0 and not force:
+                print(
+                    f"verify: the suite exited {ran['exit_code']} ({ran['failed']} failed), so the "
+                    "counts in the documents were updated but the run was not recorded - fix the "
+                    "suite, or pass --force to record the run that happened",
+                    file=sys.stderr,
+                )
+                if not getattr(args, "json", False):
+                    for line in ledger.describe(report):
+                        print(line)
+                return 1
+        else:
+            facts = ledger.measure(root, run=bool(getattr(args, "run", False)))
+            report = ledger.check(root, facts)
+    except ledger.LedgerError as exc:
+        print(f"verify: {exc}", file=sys.stderr)
+        return 2
+    if getattr(args, "json", False):
+        _print_json(report)
+    else:
+        for line in ledger.describe(report):
+            print(line)
+    return 0 if report["ok"] else 1
+
+
 def cmd_notify(args) -> int:
     """The risk alert channel: who would be told, prove it, and watch for it.
 
@@ -1761,6 +1825,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_risk)
+
+    sp = sub.add_parser(
+        "verify", help="the verification ledger: the suite count is measured, never typed"
+    )
+    sp.add_argument("--ledger", action="store_true", help="hold the documentation to the suite")
+    sp.add_argument("--run", action="store_true", help="execute the suite instead of collecting it")
+    sp.add_argument(
+        "--write", action="store_true", help="run the suite and rewrite the marked fragments"
+    )
+    sp.add_argument(
+        "--force",
+        action="store_true",
+        help="record a failing run, or a fragment bound to another interpreter",
+    )
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_verify)
 
     sp = sub.add_parser("notify", help="risk alerts: the halt, and the warning before it")
     sp.add_argument(
