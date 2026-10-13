@@ -85,6 +85,10 @@ a{color:var(--brand-2);text-decoration:none}
 .nav-item:hover{background:var(--bg-3);color:var(--tx)}
 .nav-item.active{background:var(--brand-bg);color:var(--tx);border-color:var(--bd-2);font-weight:600}
 .nav-item.active .ico{opacity:1;color:var(--brand-2)}
+.nav-grp{font-size:9.5px;text-transform:uppercase;letter-spacing:.11em;color:var(--tx-3);
+  padding:9px 10px 3px;font-weight:700;white-space:nowrap;overflow:hidden}
+.app.collapsed .nav-grp,.app .nav-grp.nav-grp-hide{height:1px;padding:5px 0 0;
+  font-size:0;background:var(--bd);margin:4px 10px 0}
 .nav-item.ai.active{background:var(--ai-bg);border-color:var(--bd-2)}
 .nav-item.ai.active .ico{color:var(--ai)}
 .side-foot{padding:8px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px}
@@ -234,6 +238,9 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .price small{font-size:13px;font-weight:400;margin-left:9px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--tx-2);margin-top:8px}
 .legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.mk-stats{display:flex;gap:24px;flex-wrap:wrap;font-size:11.5px;color:var(--tx-2);margin:4px 0 10px}
+.mk-stats span{white-space:nowrap}
+.mk-stats b{display:block;font-family:var(--mono);font-size:13.5px;font-weight:620;color:var(--tx);margin-top:3px}
 
 /* ---------- AI cycle ---------- */
 .cycle{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
@@ -288,6 +295,7 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
 @media (max-width:900px){
   .app{--nav-w:60px}
   .app .brand .name,.app .nav-item .lbl,.app .side-foot .ver{display:none}
+  .app .nav-grp{height:1px;padding:5px 0 0;font-size:0;background:var(--bd);margin:4px 8px 0}
   .app .nav-item{justify-content:center;padding:9px 0}
   .content{padding:14px 12px 34px}
   .topbar{padding:9px 12px}
@@ -313,39 +321,52 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
   <aside class="sidebar" id="sidebar">
     <div class="brand"><span class="mark">st</span><span class="name">selftrade<small>operations dashboard</small></span></div>
     <nav class="nav" aria-label="Sections">
+      <div class="nav-grp">Market</div>
       <button class="nav-item active" data-view="overview" onclick="setView('overview')"
-        data-tip="Overview — everything at a glance: the equity curve, the live market chart, the engine's status and the latest activity.">
+        data-tip="Overview: the equity curve, the engine status, the latest activity and a one-line reading of the risk state.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
         <span class="lbl">Overview</span></button>
-      <button class="nav-item" data-view="trading" onclick="setView('trading')"
-        data-tip="Trading — the rails: live market, emergency stop, risk limits, alerts, the Binance key probe, the capital account and the paper session with its positions and trades.">
+      <button class="nav-item" data-view="market" onclick="setView('market')"
+        data-tip="Market: the live public chart - pair, interval, last price, 24h range, volume and feed status. Keyless and read-only.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l5-5 3 3 4-7 6 6"/><path d="M3 21h18"/></svg>
-        <span class="lbl">Trading</span></button>
+        <span class="lbl">Market</span></button>
+      <div class="nav-grp">Research</div>
       <button class="nav-item ai" data-view="lab" onclick="setView('lab')"
-        data-tip="AI Lab — one recorded run in depth: reproducibility, the critic's verdict, the autopsy of the losers, the strategy versions and the experiments.">
+        data-tip="Strategy Lab: the improvement cycle Collect to Learn, the version history with the stored diff for each step, and the reproducibility record.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6"/><path d="M10 3v6l-4.2 8.2A2 2 0 0 0 7.6 20h8.8a2 2 0 0 0 1.8-2.8L14 9V3"/><path d="M7 15h10"/></svg>
-        <span class="lbl">AI Lab</span></button>
-      <button class="nav-item ai" data-view="agents" onclick="setView('agents')"
-        data-tip="Agent Center — the subsystems this program actually runs, each with the evidence behind its state, plus the loop controls.">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V4"/><circle cx="12" cy="3" r="1.4"/><path d="M9 13h.01M15 13h.01"/><path d="M2 12v3M22 12v3"/></svg>
-        <span class="lbl">Agent Center</span></button>
+        <span class="lbl">Strategy Lab</span></button>
       <button class="nav-item" data-view="backtest" onclick="setView('backtest')"
-        data-tip="Backtesting — evaluate a chosen strategy with the same engine and cost model the CLI uses. It writes nothing: no row, no report, no order.">
+        data-tip="Experiments: run one candidate through the same engine and cost model the CLI uses, and read the folds, the out-of-sample comparison and the costs.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-        <span class="lbl">Backtesting</span></button>
+        <span class="lbl">Experiments</span></button>
+      <div class="nav-grp">Trading & risk</div>
+      <button class="nav-item" data-view="trading" onclick="setView('trading')"
+        data-tip="Paper Trading: the simulated session - orders, positions, fees, equity - plus the Binance key probe and the capital account this rail would risk.">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l5-5 3 3 4-7 6 6"/><path d="M3 21h18"/></svg>
+        <span class="lbl">Paper Trading</span></button>
+      <button class="nav-item" data-view="risk" onclick="setView('risk')"
+        data-tip="Risk Center: the emergency stop, the sealed limits with the room left before each one trips, and what the alert channel actually sent.">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7.5 2.8v6.4c0 4-3.2 7.4-7.5 8.8-4.3-1.4-7.5-4.8-7.5-8.8V5.8z"/><path d="M12 8.5v3.2M12 15h.01"/></svg>
+        <span class="lbl">Risk Center</span></button>
+      <div class="nav-grp">Agent</div>
+      <button class="nav-item ai" data-view="agents" onclick="setView('agents')"
+        data-tip="Agent and Memory: what the agents are doing right now, the subsystems they depend on, the lessons they kept, the run history and the hall of fame.">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V4"/><circle cx="12" cy="3" r="1.4"/><path d="M9 13h.01M15 13h.01"/><path d="M2 12v3M22 12v3"/></svg>
+        <span class="lbl">Agent &amp; Memory</span></button>
       <button class="nav-item" data-view="memory" onclick="setView('memory')"
-        data-tip="Memory & Knowledge — what the program learned: the stats, the lessons with their scope, the run history and the hall of fame.">
+        data-tip="Memory and Knowledge: the lessons with their scope, the run history and the hall of fame.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
         <span class="lbl">Memory &amp; Knowledge</span></button>
+      <div class="nav-grp">System</div>
       <button class="nav-item" data-view="logs" onclick="setView('logs')"
-        data-tip="System Logs — the recorded risk events, the provider calls and the tracked loop's own log tail.">
+        data-tip="System Logs: the recorded risk events, the provider calls and the tracked loop's own log tail.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>
         <span class="lbl">System Logs</span></button>
       <button class="nav-item" data-view="settings" onclick="setView('settings')"
-        data-tip="Settings — the configuration read-only (environment variable NAMES only, never values), the login password and the sealed risk limits.">
+        data-tip="System: the configuration read-only (environment variable NAMES only, never values), the login password and the sealed risk limits with their verification.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 8 2.6 1.7 1.7 0 0 0 9.1 1V1a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15 2.6a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1.1H23a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1.1z"/></svg>
-        <span class="lbl">Settings</span></button>
-    </nav>
+        <span class="lbl">System</span></button>
+      </nav>
     <div class="side-foot">
       <div class="row">
         <button class="btn ghost sm" id="theme-btn" onclick="toggleTheme()" data-tip="Switches between the dark and light theme; the choice is kept in this browser.">theme</button>
@@ -418,65 +439,13 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
 
       <!-- ============================ TRADING ============================ -->
       <section class="view" data-view="trading">
-        <div class="card">
-          <div class="card-h"><h2 data-tip="A live chart on public market data: no key, no account, no order. It is here to show what the price is doing, not to place anything.">Live market</h2><span class="spacer"></span><span class="muted" id="mk-status">connecting…</span></div>
-          <div class="toolbar">
-            <span class="search"><span class="mag">⌕</span><input id="mk-symbol" size="12" spellcheck="false" aria-label="Symbol" data-tip="The pair this chart follows, e.g. BTC/USDT."></span>
-            <select id="mk-interval" aria-label="Interval" data-tip="Candle interval: 1m is one candle per minute, 1d one per day.">
-              <option>1m</option><option>3m</option><option>5m</option><option>15m</option>
-              <option>30m</option><option>1h</option><option>4h</option><option>1d</option>
-            </select>
-            <button class="btn sm" onclick="applyMarket('mk')" data-tip="Applies the pair and interval, here and on the Overview page (one shared selection).">apply</button>
-            <span class="spacer"></span>
-            <span class="muted mono" id="mk-meta"></span>
-          </div>
-          <div class="card-b">
-            <div class="price" id="mk-price" data-tip="Last price, with the 24-hour change and range beside it, as the public feed reports them.">…</div>
-            <div class="chart-wrap"><canvas class="chart" id="chart" style="height:340px" data-tip="Candlesticks: each bar is one interval, with its open, high, low and close."></canvas></div>
-          </div>
-        </div>
+        
 
-        <div class="card" id="ks-card">
-          <div class="card-h"><h2 data-tip="The one write action this page offers, and it only ever refuses: arming it makes the risk gate, the paper loop and the Binance adapter reject every order until you disarm. It cannot place one.">Emergency stop</h2><span class="spacer"></span><span class="muted" id="ks-status">loading…</span></div>
-          <div class="toolbar">
-            <span class="muted" id="ks-meta">…</span>
-            <span class="spacer"></span>
-            <button class="btn sm danger" id="ks-arm" onclick="ksAsk('arm')" disabled data-tip="Arms the file-backed kill switch: everything that can send an order consults it first and will refuse. Needs a reason and a confirmation; it is not a pause of the loop.">arm emergency stop</button>
-            <button class="btn sm" id="ks-reset" onclick="ksAsk('reset')" disabled data-tip="Disarms the kill switch and lets orders be considered again. It also needs a reason and a confirmation.">disarm</button>
-          </div>
-          <div class="toolbar hidden" id="ks-confirm">
-            <span class="warn" id="ks-confirm-text"></span>
-            <input id="ks-reason" size="38" placeholder="reason (kept in the audit trail)" data-tip="Why the switch is being armed or disarmed. It is stored in the append-only audit trail next to the moment, so the record explains itself later.">
-            <button class="btn sm primary" id="ks-go" onclick="ksGo()" data-tip="Writes the switch now: arming refuses every order on every rail, disarming allows orders to be considered again. It is recorded in the audit trail with your reason.">confirm</button>
-            <button class="btn sm ghost" onclick="ksCancel()" data-tip="Abandons this action \u2014 the switch keeps the state it already had.">cancel</button>
-          </div>
-          <div class="card-b" id="ks-body"><span class="muted">…</span></div>
-          <div class="card-b tight" id="ks-msg"></div>
-        </div>
+        
 
-        <div class="card" id="risk-card">
-          <div class="card-h"><h2 data-tip="The active paper session measured against the sealed caps — drawdown, today's P&amp;L and exposure — with the headroom left before each one trips. The arithmetic is the pre-trade gate's own, so this page cannot show a limit the gate enforces differently.">Risk limits</h2><span class="spacer"></span><span class="muted" id="risk-status">loading…</span></div>
-          <div class="toolbar">
-            <span class="muted" id="risk-meta">…</span>
-            <span class="spacer"></span>
-            <button class="btn sm" onclick="refreshRisk()" data-tip="Measures the account again, now. Read-only: one database read, no exchange call, no rate budget spent.">refresh</button>
-          </div>
-          <div class="card-b">
-            <div id="risk-headroom" class="muted">…</div>
-            <div id="risk-alerts" class="card-sub">…</div>
-            <div id="risk-body" class="muted" style="margin-top:10px">…</div>
-          </div>
-        </div>
+        
 
-        <div class="card" id="al-card">
-          <div class="card-h"><h2 data-tip="What the optional alert channel actually delivered, read from its own ledger. Only deliveries are recorded there, so nothing on this list is a message that never left the machine.">Alerts</h2><span class="spacer"></span><span class="muted" id="al-status">loading…</span></div>
-          <div class="toolbar">
-            <span class="muted" id="al-meta">…</span>
-            <span class="spacer"></span>
-            <button class="btn sm" onclick="refreshAlerts()" data-tip="Re-reads the delivery ledger. No message is sent by looking.">refresh</button>
-          </div>
-          <div class="card-b" id="al-body"><span class="muted">…</span></div>
-        </div>
+        
 
         <div class="card" id="bk-card">
           <div class="card-h"><h2 data-tip="A read-only probe of the configured Binance Testnet key: permissions, clock offset, signature, balances, open orders and the rate budget. It runs on an unarmed broker, so nothing can be sent from this browser.">Binance key</h2><span class="spacer"></span><span class="muted" id="bk-status">checking…</span></div>
@@ -529,7 +498,73 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
         </div>
       </section>
 
-      <!-- ============================ AI LAB ============================ -->
+      <!-- ============================ MARKET ============================= -->
+      <section class="view" data-view="market">
+        <div class="card">
+          <div class="card-h"><h2 data-tip="A live chart on public market data: no key, no account, no order. It is here to show what the price is doing, not to place anything.">Live market</h2><span class="spacer"></span><span class="muted" id="mk-status">connecting…</span></div>
+          <div class="toolbar">
+            <span class="search"><span class="mag">⌕</span><input id="mk-symbol" size="12" spellcheck="false" aria-label="Symbol" data-tip="The pair this chart follows, e.g. BTC/USDT."></span>
+            <select id="mk-interval" aria-label="Interval" data-tip="Candle interval: 1m is one candle per minute, 1d one per day.">
+              <option>1m</option><option>3m</option><option>5m</option><option>15m</option>
+              <option>30m</option><option>1h</option><option>4h</option><option>1d</option>
+            </select>
+            <button class="btn sm" onclick="applyMarket('mk')" data-tip="Applies the pair and interval, here and on the Overview page (one shared selection).">apply</button>
+            <span class="spacer"></span>
+            <span class="muted mono" id="mk-meta"></span>
+          </div>
+          <div class="card-b">
+            <div class="price" id="mk-price" data-tip="Last price, with the 24-hour change and range beside it, as the public feed reports them.">…</div>
+            <div class="mk-stats" id="mk-stats" data-tip="The 24-hour rolling stats the public feed reports with the price: high, low, traded base volume, quote volume and trade count. Hover a figure for the exact number; nothing here is estimated."></div>
+            <div class="chart-wrap"><canvas class="chart" id="chart" style="height:340px" data-tip="Candlesticks: each bar is one interval, with its open, high, low and close."></canvas></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h2 data-tip="What this page is and what it is not: public market data, keyless, read-only. No account, no order, ever.">Read-only market data</h2></div>
+          <div class="card-b"><div id="mk-notes" class="muted"></div></div>
+        </div>
+      </section>
+
+      <!-- =========================== RISK CENTER ========================= -->
+      <section class="view" data-view="risk">
+        <div class="card" id="ks-card">
+          <div class="card-h"><h2 data-tip="The one write action this page offers, and it only ever refuses: arming it makes the risk gate, the paper loop and the Binance adapter reject every order until you disarm. It cannot place one.">Emergency stop</h2><span class="spacer"></span><span class="muted" id="ks-status">loading…</span></div>
+          <div class="toolbar">
+            <span class="muted" id="ks-meta">…</span>
+            <span class="spacer"></span>
+            <button class="btn sm danger" id="ks-arm" onclick="ksAsk('arm')" disabled data-tip="Arms the file-backed kill switch: everything that can send an order consults it first and will refuse. Needs a reason and a confirmation; it is not a pause of the loop.">arm emergency stop</button>
+            <button class="btn sm" id="ks-reset" onclick="ksAsk('reset')" disabled data-tip="Disarms the kill switch and lets orders be considered again. It also needs a reason and a confirmation.">disarm</button>
+          </div>
+          <div class="toolbar hidden" id="ks-confirm">
+            <span class="warn" id="ks-confirm-text"></span>
+            <input id="ks-reason" size="38" placeholder="reason (kept in the audit trail)" data-tip="Why the switch is being armed or disarmed. It is stored in the append-only audit trail next to the moment, so the record explains itself later.">
+            <button class="btn sm primary" id="ks-go" onclick="ksGo()" data-tip="Writes the switch now: arming refuses every order on every rail, disarming allows orders to be considered again. It is recorded in the audit trail with your reason.">confirm</button>
+            <button class="btn sm ghost" onclick="ksCancel()" data-tip="Abandons this action \u2014 the switch keeps the state it already had.">cancel</button>
+          </div>
+          <div class="card-b" id="ks-body"><span class="muted">…</span></div>
+          <div class="card-b tight" id="ks-msg"></div>        </div>
+        <div class="card" id="risk-card">
+          <div class="card-h"><h2 data-tip="The active paper session measured against the sealed caps — drawdown, today's P&amp;L and exposure — with the headroom left before each one trips. The arithmetic is the pre-trade gate's own, so this page cannot show a limit the gate enforces differently.">Risk limits</h2><span class="spacer"></span><span class="muted" id="risk-status">loading…</span></div>
+          <div class="toolbar">
+            <span class="muted" id="risk-meta">…</span>
+            <span class="spacer"></span>
+            <button class="btn sm" onclick="refreshRisk()" data-tip="Measures the account again, now. Read-only: one database read, no exchange call, no rate budget spent.">refresh</button>
+          </div>
+          <div class="card-b">
+            <div id="risk-headroom" class="muted">…</div>
+            <div id="risk-alerts" class="card-sub">…</div>
+            <div id="risk-body" class="muted" style="margin-top:10px">…</div>
+          </div>        </div>
+        <div class="card" id="al-card">
+          <div class="card-h"><h2 data-tip="What the optional alert channel actually delivered, read from its own ledger. Only deliveries are recorded there, so nothing on this list is a message that never left the machine.">Alerts</h2><span class="spacer"></span><span class="muted" id="al-status">loading…</span></div>
+          <div class="toolbar">
+            <span class="muted" id="al-meta">…</span>
+            <span class="spacer"></span>
+            <button class="btn sm" onclick="refreshAlerts()" data-tip="Re-reads the delivery ledger. No message is sent by looking.">refresh</button>
+          </div>
+          <div class="card-b" id="al-body"><span class="muted">…</span></div>
+        </div>
+      </section>
+
       <section class="view" data-view="lab">
         <div class="card ai-card">
           <div class="card-h"><h2 data-tip="The six stages of one improvement cycle, each with the evidence behind it: the run it came from, the critic's verdict, the folds it was validated on, the paper session that followed and what it stored as a lesson.">Improvement cycle</h2><span class="spacer"></span>
@@ -773,9 +808,11 @@ const REFRESH = __REFRESH__ * 1000;      /* panels */
 const MK_REFRESH = __MK_REFRESH__ * 1000; /* live market chart */
 const KEY_REFRESH = __KEY_REFRESH__ * 1000;
 
-const VIEWS = ['overview', 'trading', 'lab', 'agents', 'backtest', 'memory', 'logs', 'settings'];
-const TITLES = {overview:'Overview', trading:'Trading', lab:'AI Lab', agents:'Agent Center',
-  backtest:'Backtesting & Experiments', memory:'Memory & Knowledge', logs:'System Logs', settings:'Settings'};
+const VIEWS = ['overview', 'market', 'trading', 'lab', 'backtest', 'risk', 'agents',
+  'memory', 'logs', 'settings'];
+const TITLES = {overview:'Overview', market:'Market', trading:'Paper Trading',
+  lab:'Strategy Lab', backtest:'Experiments', risk:'Risk Center', agents:'Agent & Memory',
+  memory:'Memory & Knowledge', logs:'System Logs', settings:'System'};
 
 const S = {
   authed: false, started: false, view: 'overview',
@@ -1048,7 +1085,9 @@ async function renderActive(){
   if(!S.authed) return;
   try {
     if(S.view === 'overview') await renderOverview();
+    else if(S.view === 'market') await renderMarketPage();
     else if(S.view === 'trading') await renderTrading();
+    else if(S.view === 'risk') await renderRiskCenter();
     else if(S.view === 'lab') await renderLab();
     else if(S.view === 'agents') await renderAgents();
     else if(S.view === 'backtest') await renderBacktest();
@@ -1484,7 +1523,8 @@ function syncMarketInputs(){
    the two toolbars share one selection, but neither may silently override the other's
    inputs - pressing apply in the Overview must not read the Trading card's dropdown. */
 function applyMarket(from){
-  const p = (from === 'mk' || from === 'ov') ? from : (S.view === 'trading' ? 'mk' : 'ov');
+  const p = (from === 'mk' || from === 'ov') ? from
+    : (S.view === 'trading' || S.view === 'market' ? 'mk' : 'ov');
   const sym = $(p + '-symbol');
   const ivl = $(p + '-interval');
   S.market.symbol = ((sym && sym.value) || '').trim() || S.market.symbol || 'BTC/USDT';
@@ -1511,6 +1551,7 @@ async function refreshMarket(){
   }
   const t = m.ticker || {};
   const up = (t.change_pct || 0) >= 0;
+  renderMarketStats(m);
   if($('mk-price')) $('mk-price').innerHTML = m.ok
     ? fmt(t.last, t.last >= 100 ? 2 : 5) + ' <small class="' + (up ? 'ok' : 'bad') + '">' + (up ? '+' : '') + ((t.change_pct || 0) * 100).toFixed(2) + '% 24h</small>'
     : '<span class="muted" style="font-size:15px">' + esc(m.error || 'no data') + '</span>';
@@ -1519,6 +1560,36 @@ async function refreshMarket(){
   if($('ov-mk-meta')) $('ov-mk-meta').textContent = m.ok ? (m.symbol + ' ' + m.interval + ' · ' + (m.candles || []).length + ' candles') : 'unavailable';
   if(m.ok) syncMarketInputs();
   drawMarketCharts();
+}
+/* The 24h strip under the price. It exists on the Market page only; the Overview keeps the
+   compact price line, so everything here is guarded by the element being present. The
+   figures are the feed's own: a missing ticker says so instead of showing zeroes. */
+function renderMarketStats(m){
+  const el = $('mk-stats'); if(!el) return;
+  if(!m.ok){ el.innerHTML = '<span class="muted">24h stats unavailable: ' + esc(m.error || 'no data') + '</span>'; return; }
+  const t = m.ticker || {};
+  const base = String(m.symbol || '').split('/')[0] || 'base';
+  const dp = (v) => (isNum(v) && Math.abs(v) >= 100) ? 2 : 5;
+  const cells = [
+    ['24h high', fmt(t.high, dp(t.high)), t.high],
+    ['24h low', fmt(t.low, dp(t.low)), t.low],
+    ['24h volume', compactNum(t.volume) + ' ' + esc(base), t.volume],
+    ['24h quote volume', compactNum(t.quote_volume) + ' USDT', t.quote_volume],
+    ['24h trades', fmt(t.trades, 0), t.trades],
+  ];
+  el.innerHTML = cells.map(([k, v, raw]) =>
+    '<span title="' + esc(String(raw)) + '">' + k + '<b>' + v + '</b></span>').join('');
+}
+/* A display convenience for the two figures here that run into the billions. It rounds to
+   three significant parts and puts the exact value in the cell's title, so a reader can
+   always see the number the feed sent. */
+function compactNum(v){
+  if(!isNum(v)) return 'N/D';
+  const a = Math.abs(v);
+  if(a >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+  if(a >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if(a >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return fmt(v, a >= 10 ? 0 : 2);
 }
 function drawMarketCharts(){
   const m = S.marketData; if(!m) return;
@@ -1978,6 +2049,23 @@ function renderActivity(logs){
 }
 
 /* ================================= TRADING ================================ */
+async function renderMarketPage(){
+  /* The Market page draws the same public series the Overview does, from the same
+     keyless endpoint: one selection, two places it is shown. Nothing here writes. */
+  await refreshMarket();
+  const notes = $('mk-notes');
+  if(notes) notes.textContent = 'Candles and 24h stats come from the public Binance '
+    + 'feed - keyless, read-only, cached server-side. No account is involved and this '
+    + 'page cannot place, change or cancel anything.';
+}
+async function renderRiskCenter(){
+  /* The stop first, because it must never be shown stale, then the room left under the
+     limits that would engage it, then what the alert channel actually sent about either.
+     All three also refresh on the global timer, so this is a first paint, not the only. */
+  await refreshSwitch();
+  await refreshRisk();
+  await refreshAlerts();
+}
 async function renderTrading(){
   const [paper, risk, tr] = await Promise.all([safe(api('/api/paper')), safe(api('/api/risk')), safe(api('/api/trades'))]);
   if(!S.key) refreshKey(false).catch(() => {});
@@ -2025,7 +2113,6 @@ async function renderTrading(){
       {key:'return_pct', label:'return', align:'right', render:v => '<span class="' + sgn(v) + '">' + (isNum(v) ? (v * 100).toFixed(3) + '%' : 'N/D') + '</span>'}
     ]
   });
-  refreshMarket().catch(() => {});
   refreshCapital().catch(() => {});
 }
 

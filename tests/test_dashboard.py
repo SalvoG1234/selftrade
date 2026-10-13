@@ -5,6 +5,7 @@ touch the network; the login is exercised end to end over real HTTP with cookies
 """
 
 import json
+import re
 import subprocess
 import threading
 import time
@@ -2104,3 +2105,119 @@ def test_the_page_shows_the_backend_message_rather_than_a_status_code():
     from selftrade.dashboard_ui import HTML_PAGE
 
     assert "body.detail || body.error" in HTML_PAGE
+
+
+# ---------------------------------------------------------------- the pages themselves
+#
+# The shell is one file of HTML, CSS and JS with no build step, so the page structure is a
+# contract the server serves rather than a route table: these tests read the served HTML.
+
+
+def _page_html(ctx):
+    base, _, _ = ctx
+    with urllib.request.urlopen(base + "/", timeout=10) as r:
+        return r.read().decode("utf-8")
+
+
+def _view(html, name):
+    """The contents of one view, between its `<section>` and the next `</section>`."""
+    marker = re.compile(r'<section class="view[^"]*" data-view="(\w+)">')
+    for m in marker.finditer(html):
+        if m.group(1) == name:
+            return html[m.start():html.index("</section>", m.end())]
+    raise AssertionError(f"no view {name!r}")
+
+
+def _js(html, name):
+    """The body of one `async function name(){...}`, by brace depth."""
+    start = html.index(f"async function {name}(")
+    i = html.index("{", start)
+    depth = 0
+    for j in range(i, len(html)):
+        if html[j] == "{":
+            depth += 1
+        elif html[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return html[start:j + 1]
+    raise AssertionError(f"unterminated {name}")
+
+
+def test_every_page_declared_in_the_titles_has_a_view_and_a_nav_item(ctx):
+    """No page in the sidebar without a panel, and no panel without a way to reach it."""
+    html = _page_html(ctx)
+    titles = html[html.index("const TITLES = "):].split("};", 1)[0]
+    declared = re.findall(r"(\w+):'[^']+'", titles)
+    assert len(declared) == 10, declared
+    for name in declared:
+        assert f'data-view="{name}"' in html, name          # reached from the sidebar
+        _view(html, name)                                     # and it exists as a panel
+    # the sidebar offers exactly those pages, in a deliberate order: nothing else is clickable
+    nav = html[html.index('<nav class="nav"'):html.index("</nav>")]
+    assert re.findall(r'data-view="(\w+)"', nav) == [
+        "overview", "market", "lab", "backtest", "trading", "risk", "agents", "memory",
+        "logs", "settings",
+    ]
+    # every nav item is a real button that routes through setView, not a dead label
+    assert nav.count('class="nav-item') == 10
+    assert nav.count("onclick=\"setView('") == 10
+
+
+def test_the_sidebar_groups_the_pages_the_way_the_brief_asks(ctx):
+    html = _page_html(ctx)
+    nav = html[html.index('<nav class="nav"'):html.index("</nav>")]
+    groups = re.findall(r'<div class="nav-grp">([^<]+)</div>', nav)
+    assert groups == ["Market", "Research", "Trading & risk", "Agent", "System"]
+    # a heading is never the last thing in the rail, and every page sits under one
+    first_page = nav.index('class="nav-item')
+    assert nav.index('<div class="nav-grp">') < first_page
+    assert nav.rindex('<div class="nav-grp">') < nav.rindex('class="nav-item')
+
+
+def test_the_market_page_owns_the_chart_and_puts_it_nowhere_near_an_order(ctx):
+    """The chart moved out of Trading: the rail view no longer draws it."""
+    html = _page_html(ctx)
+    market = _view(html, "market")
+    for anchor in ('id="mk-symbol"', 'id="mk-interval"', 'id="mk-status"', 'id="chart"'):
+        assert anchor in market, anchor
+    assert 'id="mk-status"' not in _view(html, "trading")
+    # its renderer paints the chart and nothing else, and writes nothing
+    body = _js(html, "renderMarketPage")
+    assert "await refreshMarket();" in body
+    assert "POST" not in body and "/api/killswitch" not in body
+    # and the market selection follows the operator onto that page
+    assert "S.view === 'trading' || S.view === 'market' ? 'mk' : 'ov'" in html
+    # the API behind it is keyless and read-only, as the page says
+    assert "Read-only market data" in market
+
+
+def test_the_risk_center_owns_the_stop_the_limits_and_the_alerts(ctx):
+    html = _page_html(ctx)
+    risk = _view(html, "risk")
+    for anchor in ('id="ks-card"', 'id="ks-arm"', 'id="ks-confirm"', 'id="risk-card"',
+                   'id="al-card"'):
+        assert anchor in risk, anchor
+    trading = _view(html, "trading")
+    for gone in ('id="ks-status"', 'id="risk-status"', 'id="al-body"'):
+        assert gone not in trading, gone
+    body = _js(html, "renderRiskCenter")
+    # the stop first: it must never be the panel left stale by a slow neighbour
+    assert body.index("refreshSwitch()") < body.index("refreshRisk()") < body.index("refreshAlerts()")
+    # and the stop kept its explicit confirmation on the page it now lives on
+    assert "confirm: true" in html and "async function refreshSwitch()" in html
+
+
+def test_the_router_paints_the_new_pages_and_the_old_views_still_render(ctx):
+    html = _page_html(ctx)
+    for name in ("renderMarketPage", "renderRiskCenter", "renderTrading", "renderOverview"):
+        assert f"async function {name}()" in html, name
+    assert "else if(S.view === 'market') await renderMarketPage();" in html
+    assert "else if(S.view === 'risk') await renderRiskCenter();" in html
+    # the panels are all still rendered: a split that dropped one would show here
+    for fn in ("refreshCapital", "refreshKey", "refreshSwitch", "refreshRisk", "refreshAlerts",
+               "refreshMarket", "refreshStatus"):
+        assert f"async function {fn}(" in html, fn
+    # the capital account and the key probe stayed with the rail they belong to
+    trading = _view(html, "trading")
+    assert 'id="cap-card"' in trading and 'id="bk-card"' in trading
+    assert 'id="tr-session"' in trading

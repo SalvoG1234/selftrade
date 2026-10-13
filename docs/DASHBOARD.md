@@ -99,6 +99,14 @@ candle grows and the price line moves. Symbol and interval (1m…1d) are selecta
 in the page; defaults come from `dashboard.market_symbol` / `market_interval` /
 `market_bars`.
 
+It lives on the **Market** page, which also prints the 24h strip under the price: the
+last price and its 24h change, then the feed's own high, low, base volume, quote volume
+and trade count. Volumes and counts are compacted for the eye (`15.3K BTC`, `1.27B
+USDT`) with the exact figure in the cell's tooltip — the number the feed sent is always
+recoverable, and a ticker that did not arrive reads `N/D` rather than a zero.
+The same series is drawn on the Overview's smaller panel: one selection, two places it is
+shown, and the *apply* button moves both.
+
 `GET /api/market?symbol=BTC/USDT&interval=1m&bars=180` returns:
 
 ```json
@@ -483,21 +491,30 @@ curl.exe -b cookies.txt -X POST http://127.0.0.1:8787/api/control -H "Content-Ty
 
 The page is a single inline document (`selftrade/dashboard_ui.py`, imported by
 `dashboard.py` so the server logic stays separate from the presentation) with a
-collapsible sidebar, a top status bar and eight hash-routed views. A dark theme is the
-default; a light theme is one token override behind the **theme** button. Green and red
-mean a positive and a negative change and nothing else; cyan/violet mark the AI
-surfaces.
+collapsible sidebar, a top status bar and ten hash-routed views, grouped in the rail as
+**Market** (Overview, Market), **Research** (Strategy Lab, Experiments), **Trading &
+risk** (Paper Trading, Risk Center), **Agent** (Agent & Memory, Memory & Knowledge) and
+**System** (System Logs, System). A dark theme is the default; a light theme is one token
+override behind the **theme** button. Green and red mean a positive and a negative
+change and nothing else; cyan/violet mark the AI surfaces.
+
+A page holds one kind of thing. The Market page reads public prices and writes nothing;
+the Risk Center owns the stop and the limits it would engage; Paper Trading owns the
+simulated rail and the capital it risks. A card is not duplicated between pages: it moved
+when its subject did, so a reader never has to guess which copy is the live one.
 
 | View | What it answers | Endpoints it reads |
 | --- | --- | --- |
-| **Overview** | equity, P&L, drawdown, trades, market, engine and agent state, the last improvement cycle, recent activity — with a **manual refresh** (and a last-updated stamp) and the market symbol/interval the Trading view shares | `/api/overview`, `/api/paper`, `/api/equity`, `/api/risk`, `/api/session`, `/api/trades`, `/api/lab`, `/api/logs`, `/api/market` |
-| **Trading** | the live market, the emergency stop, the risk limits, the alerts, the Binance key, the **capital account** (balance, what was credited and allocated, the ledger, and one confirm-gated movement at a time), the paper session, positions and the trade log | `/api/market`, `/api/killswitch`, `/api/risk`, `/api/alerts`, `/api/binance`, `/api/capital`, `/api/paper`, `/api/trades` |
+| **Overview** | equity, P&L, drawdown, trades, market, engine and agent state, the last improvement cycle, recent activity — with a **manual refresh** (and a last-updated stamp) and the market symbol/interval the Market page shares | `/api/overview`, `/api/paper`, `/api/equity`, `/api/risk`, `/api/session`, `/api/trades`, `/api/lab`, `/api/logs`, `/api/market` |
+| **Market** | the live public chart — pair, interval, last price, 24h change, **24h high/low/volume/quote volume/trades**, the feed status, latency and fetch timestamp — and an explicit statement of what the page is not: no key, no account, no order. Its pair/interval is the one the Overview shows (one shared selection) | `/api/market` |
+| **Paper Trading** | the Binance key probe, the **capital account** (balance, what was credited and allocated, the ledger, and one confirm-gated movement at a time), the paper session, positions/exposure and the trade log — the rail and what it risks, without the market chart or the risk panels | `/api/binance`, `/api/capital`, `/api/paper`, `/api/trades` |
+| **Risk Center** | the **emergency stop** (state first — it must never be the panel left stale by a slow neighbour), the **risk limits** measured against the sealed caps with the room left and what a breach would do, and the **alerts** card: what the channel actually delivered. The stop keeps its confirm-gated arm/reset and its audit records | `/api/killswitch`, `/api/risk`, `/api/alerts` |
 | **AI Lab** | the Collect → Hypothesize → Backtest → Validate → Paper-trade → Learn cycle, the run summary, the reproducibility record, the critic verdict, the autopsy, the version history with its diffs and the per-experiment table — and a **re-run & compare** on each version, which re-evaluates that exact genome on the folds window and says whether its stored fitness reproduces | `/api/lab`, `/api/backtest` |
-| **Agent Center** | the subsystems the program actually runs, their real state, dependencies, last activity and error counts — with its own copy of the loop controls (start/pause/resume/stop), a refresh, and a row that expands into *where each state came from* | `/api/session`, `/api/risk`, `/api/alerts`, `/api/binance`, `/api/market`, `/api/lab`, `/api/logs` |
-| **Backtesting** | **runs its own backtest**: pick a recorded version or a hall genome and a window (walk-forward folds / holdout tail / whole series), press *run*, and read the metrics, the equity curve, the underwater chart and the provenance of what was measured — plus the champion's out-of-sample metrics, the strategy comparison, the cost model and the fold bars | `/api/backtest`, `/api/hall`, `/api/equity`, `/api/trades`, `/api/paper`, `/api/lab` |
+| **Agent & Memory** | the subsystems the program actually runs, their real state, dependencies, last activity and error counts — with its own copy of the loop controls (start/pause/resume/stop), a refresh, and a row that expands into *where each state came from* | `/api/session`, `/api/risk`, `/api/alerts`, `/api/binance`, `/api/market`, `/api/lab`, `/api/logs` |
+| **Experiments** | **runs its own backtest**: pick a recorded version or a hall genome and a window (walk-forward folds / holdout tail / whole series), press *run*, and read the metrics, the equity curve, the underwater chart and the provenance of what was measured — plus the champion's out-of-sample metrics, the strategy comparison, the cost model and the fold bars | `/api/backtest`, `/api/hall`, `/api/equity`, `/api/trades`, `/api/paper`, `/api/lab` |
 | **Memory & Knowledge** | lessons (searchable, filterable by tag, **scoped to one run** by clicking that run), run history with expandable rows, and the hall of fame with an expandable genome and a button that hands it to the Backtesting view | `/api/overview`, `/api/lessons`, `/api/history`, `/api/hall` |
 | **System Logs** | risk events and provider calls with kind/result/provider filters, a row budget, the tail of the loop log with **copy** and **follow**, and an honest empty state when the loop has never run | `/api/logs` |
-| **Settings** | the configuration with environment variable **names** only, the sealed limits with their digest, the **seal verification** (the three checks — pinned digest, closed levers, the seal file on disk — each with its evidence), and the **login password** card: where the password comes from, a banner while the bootstrap `0000` is still in use, and the change form (current, new, repeat, confirmation). It is static markup on purpose, so a refresh tick cannot wipe a form being filled in | `/api/settings`, `POST /api/password` |
+| **System** | the configuration with environment variable **names** only, the sealed limits with their digest, the **seal verification** (the three checks — pinned digest, closed levers, the seal file on disk — each with its evidence), and the **login password** card: where the password comes from, a banner while the bootstrap `0000` is still in use, and the change form (current, new, repeat, confirmation). It is static markup on purpose, so a refresh tick cannot wipe a form being filled in | `/api/settings`, `POST /api/password` |
 
 ### The added endpoints
 
@@ -567,6 +584,16 @@ The diff is taken against the genome the proposal was **actually** derived from 
 transcript is written by the search, not reconstructed by the page): a carried-over
 elite shows an empty diff with its parent named, a mutation shows both changed keys,
 and a generation-0 seed has no parent at all (`has_parent: false`).
+
+### How the pages are kept apart
+
+Five tests in `tests/test_dashboard.py` read the served HTML as a contract: every view
+declared in `TITLES` must have a panel and a nav item, the sidebar must offer exactly
+those ten pages in its five groups, the Market page must own the chart (`#mk-*`, `#chart`)
+and its renderer must send no POST, the Risk Center must own the stop, the limits and the
+alerts with the stop refreshed first, and the router must dispatch both new pages while
+the old ones still render. A panel moved without a page to receive it, or a page added
+without a route, fails the suite instead of waiting to be noticed.
 
 ### What the pages deliberately do **not** show
 
