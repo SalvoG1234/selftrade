@@ -47,9 +47,9 @@ Every number below is measured in this repository and reproducible with the comm
 Quote these, and say where they come from: a claim with a command behind it survives the first
 hostile reply; a round number does not.
 
-| Claim | The number, and how to check it |
-| --- | --- |
-| The search publishes its own failure | The champion's fold-mean Sharpe is **0.885**, and the untouched holdout read it once and returned **−0.545**; the market's own buy & hold was **0.009** on that slice, so the strategy lost to holding by **0.554** | `python -m selftrade backtest --champion --holdout`
+| Claim | The number | How to check it |
+| --- | --- | --- |
+| The search publishes its own failure | The champion's fold-mean Sharpe is **0.885**, and the untouched holdout read it once and returned **−0.545**; the market's own buy & hold was **0.009** on that slice, so the strategy lost to holding by **0.554** | `python -m selftrade backtest --champion --holdout` |
 | The benchmark is in the report, not in a footnote | every fold carries its own buy & hold; `metric_excess = metric_mean - baseline_mean` | same command, and `docs/ARCHITECTURE.md` |
 | A simulated account, honestly labelled | the ledger says on the page what it is: *"A credit here is a row in a local ledger, not a payment"* | `python -m selftrade capital status`, `docs/CAPITAL.md` |
 | Costs are charged, not assumed away | 30 bps round trip: the holdout took **2 472 USDT** of costs on 10 000; with costs set to zero the same trades return **+9.3%**, so the edge lived in the fees | `python -m selftrade invest --champion --window holdout` |
