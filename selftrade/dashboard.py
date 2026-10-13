@@ -218,7 +218,22 @@ class Auth:
 
     def current_is_default(self) -> bool:
         """True while the login still accepts the bootstrap password."""
-        return self._source == "stored" and self.store is not None and self.store.is_default()
+        return self.exposes_the_bootstrap_password()
+
+    def exposes_the_bootstrap_password(self) -> bool:
+        """True while the password anyone can read in the README is still accepted.
+
+        :meth:`CredentialStore.is_default` asks this of the *stored* record; this asks it of
+        the password actually **in force**, because that is what a network bind has to look
+        at: an environment variable set to the bootstrap value is the same open door, and
+        the stored record is not what the login reads once that variable exists.  A password
+        generated for this run is random and printed once at startup, so it is not one.
+        """
+        if self._password is not None:
+            return hmac.compare_digest(self._password, DEFAULT_PASSWORD)
+        if self.store is not None:
+            return self.store.is_default()
+        return False
 
     def describe(self) -> dict[str, Any]:
         """What the Settings card renders: the source and the policy, never the hash."""
@@ -1957,8 +1972,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         pass
 
     # -- helpers ---------------------------------------------------------
+    #: Set once a response has been written, so the failure guard never writes a second one
+    #: on a socket that has already started answering.
+    _responded: bool = False
+
     def _send(self, code: int, obj: Any, content_type: str = "application/json",
               headers: dict[str, str] | None = None) -> None:
+        self._responded = True
         if isinstance(obj, str):
             payload = obj.encode("utf-8")
         else:
@@ -1992,6 +2012,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _client(self) -> str:
         return str(self.client_address[0]) if self.client_address else "?"
 
+    def _failed(self, exc: Exception) -> None:
+        """Answer an unexpected failure as JSON, once.
+
+        Without this a broken store (a database file that is not a database, a state file
+        owned by another user) turns every panel into a dropped connection: the browser
+        reports a network error, the page keeps its loading state and the server prints a
+        traceback nobody reads.  The panels poll on timers, so it repeats forever.  The
+        detail goes to an *authenticated* operator because every one of these endpoints is
+        behind the login, and it names the command that reports the same thing on a console.
+        """
+        if self._responded:
+            return
+        self._send(503, {
+            "error": "the backend could not answer",
+            "detail": f"{type(exc).__name__}: {exc}",
+            "hint": ("this dashboard reads the same store the CLI does; `python -m selftrade "
+                     "doctor` reports what it can and cannot open"),
+        })
+
+    def _api(self, call: Any) -> None:
+        """Run one API call, answering a failure instead of letting it close the socket."""
+        try:
+            call()
+        except Exception as exc:  # noqa: BLE001 - one panel must not take the server down
+            self._failed(exc)
+
     def _same_origin(self) -> bool:
         """Reject a POST whose Origin is not our own host (belt to SameSite's braces)."""
         origin = self.headers.get("Origin")
@@ -2019,11 +2065,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/") and not self._authed():
             self._send(401, {"error": "unauthorized"})
             return
-        code, obj = api_get(
-            self.settings, path, query, self.feed, self.keys, self.switch, self.risk,
-            self.alerts, self.runner, self.backtest, self.capital, self.auth,
-        )
-        self._send(code, obj)
+
+        def respond() -> None:
+            code, obj = api_get(
+                self.settings, path, query, self.feed, self.keys, self.switch, self.risk,
+                self.alerts, self.runner, self.backtest, self.capital, self.auth,
+            )
+            self._send(code, obj)
+
+        self._api(respond)
 
     def do_POST(self):  # noqa: N802
         path = urlparse(self.path).path
@@ -2053,17 +2103,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send(401, {"error": "unauthorized"})
             return
         if path == "/api/control":
-            code, obj = api_control(self.settings, body, self.runner)
-            self._send(code, obj)
+            def control() -> None:
+                code, obj = api_control(self.settings, body, self.runner)
+                self._send(code, obj)
+
+            self._api(control)
             return
         if path == "/api/killswitch":
-            self._killswitch(body)
+            self._api(lambda: self._killswitch(body))
             return
         if path == "/api/password":
-            self._password(body)
+            self._api(lambda: self._password(body))
             return
         if path == "/api/capital":
-            self._capital(body)
+            self._api(lambda: self._capital(body))
             return
         self._send(404, {"error": "not found", "path": path})
 
@@ -2162,17 +2215,46 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
 
 
-def make_server(settings: Any, host: str | None = None, port: int | None = None) -> ThreadingHTTPServer:
-    bind = host or settings.dashboard.host
-    if not is_loopback(bind) and not settings.dashboard.auth:
-        raise ValueError(
+def bind_refusal(settings: Any, auth: Auth, bind: str) -> str | None:
+    """Why this bind is refused, or ``None``.  Pure, so the policy is testable on its own.
+
+    A **loopback** bind is the operator's own machine and needs no password of its own: the
+    bootstrap value is deliberately short and printed because a secret nobody knows is a
+    lockout, not a login.
+
+    A **network** bind is different.  This page steers the loop, arms the emergency stop and
+    moves simulated capital, so the two ways it must not open are a login that is switched
+    off and a login whose password is published.  Both are checked here, and the second is
+    checked against the password *in force*: the stored record is not what the login reads
+    once ``dashboard.password_env`` exists, so checking the record alone would leave the door
+    open on exactly the machines that provision a dashboard from the environment.
+    """
+    if is_loopback(bind):
+        return None
+    if not settings.dashboard.auth:
+        return (
             f"refusing to bind {bind!r} without the dashboard login: set "
             "dashboard.auth=true (or bind 127.0.0.1). The loop controls must not be "
             "reachable without a password."
         )
+    if auth.exposes_the_bootstrap_password():
+        return (
+            f"refusing to bind {bind!r} while the bootstrap password is still in force: a "
+            "login whose password is printed in the README is not a login, and this one "
+            "steers the loop, arms the emergency stop and moves simulated capital. Set a "
+            "real one first (`python -m selftrade password --set`), or set the environment "
+            "variable named by `dashboard.password_env`, or bind 127.0.0.1. Nothing was "
+            "opened."
+        )
+    return None
+
+
+def make_server(settings: Any, host: str | None = None, port: int | None = None) -> ThreadingHTTPServer:
+    bind = host or settings.dashboard.host
     # The environment variable, when set, is the override; otherwise the stored credential
     # (which starts as the bootstrap default) is what the login accepts.  Neither is ever
-    # printed: `Auth.describe` reports the source, not the secret.
+    # printed: `Auth.describe` reports the source, not the secret.  The auth object is built
+    # *before* the bind check because the check has to see which password is in force.
     password = os.environ.get(settings.dashboard.password_env) or None
     store = CredentialStore(settings.dashboard.password_file)
     auth = Auth(
@@ -2182,6 +2264,9 @@ def make_server(settings: Any, host: str | None = None, port: int | None = None)
         store=store,
         min_length=settings.dashboard.password_min_length,
     )
+    refusal = bind_refusal(settings, auth, bind)
+    if refusal:
+        raise ValueError(refusal)
     feed = MarketFeed(settings)
     keys = KeyHealth(settings)
     switch = KillSwitchPanel(settings)

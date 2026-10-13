@@ -446,6 +446,15 @@ curl.exe -b cookies.txt -X POST http://127.0.0.1:8787/api/control -H "Content-Ty
 
 * The login is mandatory for a non-loopback bind; the config and the server both
   enforce it.
+* The bind is refused **while the bootstrap password is still in force**, whether it is
+  the stored record or `0000` handed over through `dashboard.password_env`: on a network
+  the password *is* the login, and this one is printed in the README. The refusal names
+  the command that sets a real one and opens nothing. Loopback keeps the bootstrap login —
+  a secret nobody knows is a lockout, not a login, which is the whole reason `0000` exists.
+* A store the backend cannot read (a `memory.db` that is not a database, a state file owned
+  by another user) answers **503 with the reason and the file** instead of closing the
+  socket, and the page shows that sentence: the panels poll on timers, so the alternative
+  was a traceback per poll and a panel stuck on `loading…`, forever.
 * The password lives in the environment or in one salted-hash file, the session in a
   signed cookie; the API never returns passwords, hashes, salts, tokens or environment
   values — `/api/settings` reports *where* the password comes from, not what it is.

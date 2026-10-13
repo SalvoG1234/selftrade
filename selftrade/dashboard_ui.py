@@ -1318,7 +1318,12 @@ function redrawAll(){ setTimeout(() => { if(S.marketData) drawMarketCharts(); },
 async function api(path){
   const r = await fetch(path, {headers:{'Accept':'application/json'}});
   if(r.status === 401){ needLogin(); throw new Error('unauthorized'); }
-  if(!r.ok) throw new Error('HTTP ' + r.status);
+  if(!r.ok){
+    /* The backend explains itself (a store it cannot read, a refused action): show that
+       sentence instead of a bare status code, which is all a failed fetch would leave. */
+    const body = await r.json().catch(() => null);
+    throw new Error((body && (body.detail || body.error)) || ('HTTP ' + r.status));
+  }
   return await r.json();
 }
 const j = api; /* kept for the panels below and for anything reading the old name */

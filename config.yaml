@@ -124,7 +124,8 @@ funding:                     # the SIMULATED capital account the agents work (do
   allow_withdrawal: true     # whether the operator may take capital back out
 
 dashboard:
-  host: 127.0.0.1            # keep loopback; 0.0.0.0 opens the LAN (requires auth)
+  host: 127.0.0.1            # keep loopback; 0.0.0.0 opens the LAN (requires auth AND a
+                             # password that is not the bootstrap 0000 - see docs/DASHBOARD.md)
   port: 8787
   auto_refresh_s: 15         # panels refresh
   auth: true                 # login required; mandatory for a non-loopback bind

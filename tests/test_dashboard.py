@@ -1972,3 +1972,135 @@ def test_the_capital_card_renders_its_own_controls(ctx):
         assert fn in html, fn
     # the card states the two things that matter about this account
     assert "simulated" in html and "credit itself" in html
+
+
+# ------------------------------------------- a network bind needs a real password
+
+
+def _auth(tmp_path, name, *, password=None, stored=None, no_store=False):
+    """The `Auth` `make_server` would build, for the bind policy alone."""
+    from selftrade.credentials import CredentialStore
+    from selftrade.dashboard import Auth
+
+    store = None if no_store else CredentialStore(tmp_path / "state" / f"{name}.json")
+    if stored is not None:
+        store.set(stored)
+    return Auth(True, password, 86400, store=store, min_length=4)
+
+
+def test_a_network_bind_is_refused_before_it_opens_while_the_bootstrap_password_works(tmp_path, monkeypatch):
+    """`serve --host 0.0.0.0` must not open a LAN port behind ``0000``.
+
+    The login is on, so the older guard was satisfied - but the password is the one printed
+    in the README, and this page steers the loop, arms the emergency stop and moves capital.
+    """
+    monkeypatch.delenv("SELFTD_TEST_DASH_PW", raising=False)
+    s = _settings(tmp_path)
+    s.dashboard.auth = True
+    s.dashboard.password_env = "SELFTD_TEST_DASH_PW"
+
+    with pytest.raises(ValueError) as raised:
+        make_server(s, "0.0.0.0", 0)
+    message = str(raised.value)
+    assert "bootstrap password" in message and "0.0.0.0" in message
+    assert "password --set" in message, "the refusal must say how to fix it"
+
+    # the loopback bind the message points at still works, unchanged
+    httpd = make_server(s, "127.0.0.1", 0)
+    httpd.server_close()
+
+
+def test_the_bind_policy_for_a_network_host(tmp_path):
+    """Every combination of "who owns the password" against a network bind."""
+    from selftrade.dashboard import Auth, bind_refusal
+
+    s = _settings(tmp_path)
+    s.dashboard.auth = True
+
+    def refused(auth, bind="0.0.0.0"):
+        return bind_refusal(s, auth, bind)
+
+    # a real password, wherever it lives: the bind is allowed
+    assert refused(_auth(tmp_path, "a", stored="a-real-password")) is None
+    assert refused(_auth(tmp_path, "b", password="a-real-password")) is None
+    # neither a store nor a variable: the run generated a random password and printed it once
+    assert refused(_auth(tmp_path, "c", no_store=True)) is None
+    # the bootstrap value, however it got there
+    assert "bootstrap" in (refused(_auth(tmp_path, "d")) or "")
+    assert "bootstrap" in (refused(_auth(tmp_path, "e", password="0000")) or "")
+    assert "bootstrap" in (refused(_auth(tmp_path, "f", stored="0000")) or "")
+    # loopback is the operator's own machine: the bootstrap login there is documented
+    assert refused(_auth(tmp_path, "d"), bind="127.0.0.1") is None
+    assert refused(_auth(tmp_path, "d"), bind="localhost") is None
+    assert refused(_auth(tmp_path, "d"), bind="::1") is None
+    # and the older rule still stands, with its own message
+    s.dashboard.auth = False
+    without_login = Auth(False, None, 86400, store=None)
+    assert "dashboard login" in (bind_refusal(s, without_login, "0.0.0.0") or "")
+
+
+def test_the_settings_card_calls_an_environment_bootstrap_password_default(tmp_path, monkeypatch):
+    """The banner and the bind guard must agree: `0000` is the default wherever it came from."""
+    monkeypatch.setenv("SELFTD_TEST_DASH_PW", "0000")
+    s = _settings(tmp_path)
+    s.dashboard.auth = True
+    s.dashboard.password_env = "SELFTD_TEST_DASH_PW"
+    httpd, base = _serve(s)
+    try:
+        cookie = _sign_in(base, "0000")
+        assert cookie, "the variable is the password, so it is what the login accepts"
+        code, cfg = get(base, "/api/settings", cookie=cookie)
+        assert code == 200
+        assert cfg["password"]["is_default"] is True
+    finally:
+        httpd.shutdown()
+
+
+# ------------------------------------- a store the backend cannot read
+
+
+def _get_json(base, path):
+    """Like `get`, but an error status comes back with its body instead of raising."""
+    try:
+        with urllib.request.urlopen(base + path, timeout=10) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8"))
+
+
+def test_a_database_that_is_not_a_database_answers_json_instead_of_dropping_the_socket(tmp_path):
+    """The panels poll on timers: a traceback per poll is not an error report.
+
+    Every one of these endpoints reads the same SQLite store, so a broken file used to leave
+    `api_get`, close the connection under the browser and repeat on the next tick.  The page
+    now gets the reason, the detail and the command that reports the same thing.
+    """
+    s = _settings(tmp_path)
+    s.dashboard.auth = False
+    bad = tmp_path / "state" / "not_a_db.db"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"this is not sqlite, not even a little")
+    s.memory.db = str(bad)
+    httpd, base = _serve(s)
+    try:
+        for path in ("/api/health", "/api/overview", "/api/hall", "/api/lessons", "/api/experiments"):
+            code, obj = _get_json(base, path)
+            assert code == 503, path
+            assert obj["error"] == "the backend could not answer"
+            assert "not a database" in obj["detail"], path
+            assert "doctor" in obj["hint"]
+    finally:
+        httpd.shutdown()
+
+
+def test_a_healthy_store_still_answers_200(ctx):
+    base, _, _ = ctx
+    code, obj = _get_json(base, "/api/overview")
+    assert code == 200 and "error" not in obj
+
+
+def test_the_page_shows_the_backend_message_rather_than_a_status_code():
+    """The other half of the contract: the reason must reach the operator's screen."""
+    from selftrade.dashboard_ui import HTML_PAGE
+
+    assert "body.detail || body.error" in HTML_PAGE

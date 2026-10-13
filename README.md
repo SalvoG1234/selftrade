@@ -218,7 +218,7 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 | `binance check\|doctor\|account\|positions\|bars\|exchange\|history\|open\|order\|protect\|unprotect\|cancel\|calls [--qty Q] [--side S] [--type T] [--price P] [--stop-pct P] [--client-id C] [--live] [--json]` | the Binance rail: Spot Testnet unless `binance.allow_production: true`; dry run unless `binance.live` **and** `--live`; every sent order passes the sealed gate + kill switch, with recorded requests and errors. `--stop-pct -0.02` makes the rail place a resting `SELL STOP_LOSS_LIMIT` right after the fill (validated before the entry goes out, alerted as `UNPROTECTED` if it cannot be placed); `protect`/`unprotect` add or remove that stop for a position, both keys required; `check` is the read-only start for a new key, with the POST count printed (always 0) and `--live` ignored |
 | `paper [--create] [--run] [--all] [--reset] [--status] [--session ID] [--champion] [--fund N] [--release] [--reason T] [--json]` | forward paper trading as orders through the risk gate, on the simulated rail; `--fund` allocates capital from the ledger into the new/active session **before** it trades, `--release` returns what an unfunded session holds |
 | `capital [status\|deposit\|withdraw\|allocate\|release\|ledger\|policy] [AMOUNT] [--reason T] [--currency C] [--session ID] [--limit N] [--json]` | the simulated capital account: `status` (free balance, what was credited, what is allocated, the session it funds), the movements (each with a required reason, refused when the policy cap, the free balance or a session that already traded says no), the append-only `ledger`, and the `policy` in force. Exit 1 on a refusal, and never a network call |
-| `serve [--host H] [--port P]` | dashboard: password login (first login `0000`, changed under Settings) + live Binance chart + Binance key panel + emergency stop + risk-limits panel + alerts card + loop controls + bot panels (`--host 0.0.0.0` opens the LAN; the login is mandatory for it) |
+| `serve [--host H] [--port P]` | dashboard: password login (first login `0000`, changed under Settings) + live Binance chart + Binance key panel + emergency stop + risk-limits panel + alerts card + loop controls + bot panels (`--host 0.0.0.0` opens the LAN, and is refused while the bootstrap password is still the one in force; set a real password first) |
 | `password status\|set\|reset [--value V] [--confirm] [--json]` | the dashboard login password without a dashboard: `status` says where it comes from (never what it is), `set` prompts twice, `reset --confirm` forgets it and goes back to the bootstrap `0000`. Only a salted PBKDF2 hash is ever written |
 | `session status\|start\|pause\|resume\|stop [--generations N]` | the tracked loop: `start` **launches** `evolve --session` detached (pid printed, output to `state/loop.log`), `pause`/`resume`/`stop` steer it and are refused with exit 1 when nothing is running |
 
@@ -284,6 +284,11 @@ funding a fantasy account - and the sealed 5% / 15% caps bind on funded capital 
   (`dashboard.password_file`), never the password; changing it signs out every other
   session, and the session is a signed, HttpOnly, `SameSite=Strict` cookie. Loopback
   default, no remote assets, no telemetry, no third-party auth.
+  A **network** bind is refused outright while the bootstrap password is still in force —
+  stored, or set to `0000` through the environment: a login whose password is printed in
+  this file steers the loop, arms the stop and moves capital, so `serve --host 0.0.0.0`
+  says how to set a real one and opens nothing. Loopback keeps the bootstrap login, which
+  is what it is for.
 - `paper` sends **orders** — to the simulated rail only: no connection, no
   credential, no streaming, and `mode` stays `paper`. A refused order is recorded
   and not traded; `risk_gate.enabled: false` in the config is the only way off.

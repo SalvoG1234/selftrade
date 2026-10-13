@@ -25,6 +25,30 @@ from typing import Any, Iterator
 
 SCHEMA_VERSION = 3
 
+
+class StorageError(RuntimeError):
+    """The memory store cannot be opened, or the file is not a database.
+
+    Raised instead of a bare ``sqlite3.DatabaseError`` so every front end - the CLI, the
+    dashboard, a script - says which file failed and what to do about it.  ``doctor`` answers
+    the same question without raising.
+    """
+
+
+def _unusable(db_path: str, exc: Exception) -> str:
+    """The sentence an operator gets when the store cannot be read."""
+    path = Path(db_path)
+    if path.is_dir():
+        why = "that path is a directory"
+    else:
+        why = str(exc)
+    return (
+        f"the memory store at {db_path} could not be opened ({why}). Nothing was changed: "
+        "move the file aside to start a new one (state/selftrade.db.broken) or point "
+        "`memory.db` in config.yaml at another path. `python -m selftrade doctor` reports "
+        "which store the program is trying to use."
+    )
+
 #: The only kinds a ``cash_ledger`` row may carry.  The sign of ``amount`` is always the
 #: effect on the account's **free** balance: a deposit and a release add to it, a
 #: withdrawal and an allocation take from it.  One number, one meaning.
@@ -263,7 +287,12 @@ class Memory:
         p = Path(self.db_path)
         if p.parent and str(p.parent) not in ("", "."):
             p.parent.mkdir(parents=True, exist_ok=True)
-        self.init_schema()
+        try:
+            self.init_schema()
+        except sqlite3.DatabaseError as exc:
+            # SQLite opens lazily: `connect` succeeds on any file and the first statement is
+            # where "file is not a database" appears, so the schema step is what gets wrapped.
+            raise StorageError(_unusable(self.db_path, exc)) from exc
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:

@@ -16,7 +16,7 @@ from .config import ConfigError, load_settings
 from .data import split_holdout
 from .evaluate import Holdout, evaluate_folds, holdout_eval
 from .genome import describe, sample_genome
-from .memory import Memory
+from .memory import Memory, StorageError
 
 DEFAULT_CONFIG = "config.yaml"
 
@@ -116,7 +116,16 @@ def _champion_or_family(settings, args):
 
 def cmd_doctor(args) -> int:
     settings = _load(args)
-    mem = Memory(settings.memory.db)
+    # The memory store is opened first and *guarded*: this command exists to report what is
+    # broken, so a store it cannot open must be one of the lines it prints - not the traceback
+    # that stops it before it can look at anything else.  Every other subsystem below is
+    # guarded the same way.
+    mem = None
+    memory_note = ""
+    try:
+        mem = Memory(settings.memory.db)
+    except StorageError as exc:
+        memory_note = str(exc)
     from . import data as data_mod
     from . import indicators, backtest, evaluate  # noqa: F401
 
@@ -180,9 +189,18 @@ def cmd_doctor(args) -> int:
         print(f"mt5: unavailable ({exc})")
 
     # memory
-    st = mem.stats()
-    print(f"memory: {settings.memory.db} {st}")
-    print("doctor: finished (missing subsystems are reported, not fatal)")
+    if mem is None:
+        print(f"memory: NOT AVAILABLE - {memory_note}")
+    else:
+        try:
+            print(f"memory: {settings.memory.db} {mem.stats()}")
+        except Exception as exc:  # noqa: BLE001 - the read itself can fail too
+            print(f"memory: NOT AVAILABLE - {type(exc).__name__}: {exc}")
+    if mem is None:
+        print("doctor: finished, but nothing that stores state will work until the memory "
+              "store above is readable (a missing Ollama or REA is not fatal; this is)")
+    else:
+        print("doctor: finished (missing subsystems are reported, not fatal)")
     return 0
 
 

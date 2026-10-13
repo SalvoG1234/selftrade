@@ -102,6 +102,43 @@ def test_doctor_runs_without_fatal_error(tmp_path, capsys):
     assert "memory:" in out
 
 
+def _break_the_store(tmp_path) -> Path:
+    """A file where the database should be, which is not one."""
+    bad = tmp_path / "state" / "m.db"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"this is not sqlite, not even a little")
+    return bad
+
+
+def test_doctor_reports_a_store_it_cannot_read_and_keeps_going(tmp_path, capsys):
+    """`doctor` is the command the error message points at: it must survive the broken store.
+
+    Opening the database used to happen before any of the diagnostics, so the one command
+    that exists to say what is wrong died on the first thing that was.
+    """
+    cfg = write_config(tmp_path)
+    _break_the_store(tmp_path)
+    code = run(cfg, "doctor")
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "memory: NOT AVAILABLE" in out
+    assert "not a database" in out
+    assert "nothing that stores state will work" in out
+    # and the rest of the diagnosis still happened: that is the point of the command
+    assert "python:" in out and "data:" in out and "ollama:" in out
+
+
+def test_a_broken_store_is_reported_with_the_file_and_the_fix(tmp_path, capsys):
+    cfg = write_config(tmp_path)
+    bad = _break_the_store(tmp_path)
+    code = run(cfg, "hall")
+    err = capsys.readouterr().err
+    assert code == 1
+    assert bad.as_posix() in err
+    assert "could not be opened" in err
+    assert "doctor" in err, "the message must point at the command that diagnoses it"
+
+
 def test_data_writes_csv(tmp_path, capsys):
     cfg = write_config(tmp_path)
     out_csv = tmp_path / "gen.csv"

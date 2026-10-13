@@ -278,3 +278,36 @@ def test_a_bad_genome_does_not_break_a_version_write(mem):
     assert vid > 0
     v = mem.strategy_versions(rid)[0]
     assert v["genome_hash"] is None and v["diff"] == []
+
+
+# ------------------------------------------------- a store that cannot be read
+
+
+def test_a_file_that_is_not_a_database_names_the_file_and_the_fix(tmp_path):
+    """A bare `sqlite3.DatabaseError` told the operator nothing they could act on."""
+    from selftrade.memory import StorageError
+
+    bad = tmp_path / "state" / "not_a_db.db"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"this is not sqlite, not even a little")
+    with pytest.raises(StorageError) as raised:
+        Memory(str(bad))
+    message = str(raised.value)
+    assert str(bad) in message
+    assert "not a database" in message
+    assert "doctor" in message, "the message must point at the command that diagnoses it"
+
+
+def test_a_path_that_is_a_directory_is_reported_as_one(tmp_path):
+    from selftrade.memory import StorageError
+
+    folder = tmp_path / "as_a_dir"
+    folder.mkdir()
+    with pytest.raises(StorageError) as raised:
+        Memory(str(folder))
+    assert "directory" in str(raised.value)
+
+
+def test_a_healthy_store_still_opens(tmp_path):
+    mem = Memory(str(tmp_path / "state" / "ok.db"))
+    assert mem.schema_version() == SCHEMA_VERSION
