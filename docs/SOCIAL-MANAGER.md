@@ -118,9 +118,14 @@ script around the safety layer.
 
 ## The dashboard
 
-Thirteen pages, dark theme with cyan accents, on `http://127.0.0.1:8788`: Overview, **Guida
-operativa**, Editorial Calendar, Content Studio, Approval Queue, Published Posts, Community Inbox,
-Feedback Intelligence, Analytics, Social Accounts, Agent Activity, Logs & Audit, Settings.
+Thirteen pages on `http://127.0.0.1:8788`, sharing one design system: a dark theme by default and an
+optional light one from the top bar, remembered per browser. The rail groups them by what the
+operator is doing - **Panoramica** (Overview, **Guida operativa**), **Pianificazione** (Editorial
+Calendar), **Studio contenuti** (Content Studio), **Approvazioni** (Approval Queue, Published Posts),
+**Community e feedback** (Community Inbox, Feedback Intelligence), **Analytics e report** (Analytics),
+**Agenti e automazioni** (Agent Activity, Social Accounts) and **Registro e impostazioni** (Logs &
+Audit, Settings). Grouping is presentation only: the page ids and the labels are still what the
+guide, the command palette and the suite key off, so a group never renames or hides a page.
 
 It shows what exists and says "unavailable" where the platforms have not returned data — it does not
 fill a chart with a plausible-looking number. Sessions are password-based (rate-limited, with a
@@ -175,6 +180,14 @@ names the platform and the consequence; cancel really cancels (verified: nothing
 - **Freshness is on screen.** The top bar says how many seconds ago the state was read and turns
 amber when it is stale or the server did not answer, and a chip shows the pending-approval count that
 links straight to the queue.
+- **The rail groups by task, and gets out of the way.** Below 1080px it becomes a drawer over the
+page it is navigating to, dimmed by a scrim and closed by its `✕`, by `Esc` or by a tap outside,
+with `aria-expanded` on the handle; below 900px the top bar wraps into two rows instead of pushing
+its own controls off the viewport.
+- **It is usable from the keyboard alone.** Every control has a visible focus ring rather than the
+browser default, the content is one *Salta al contenuto* skip-link away, the current page carries
+`aria-current="page"`, the freshness line is a `role="status"` live region, and
+`prefers-reduced-motion` turns every transition off.
 
 ## Facts, sources and the honesty rules
 
