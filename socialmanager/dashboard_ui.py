@@ -39,137 +39,365 @@ import json
 PLACEHOLDER = "__DASHBOARD_BOOTSTRAP__"
 
 STYLE = """
+/* ============================================================================
+   SelfTrade Social Manager - design system
+   One stylesheet, no remote assets.  Everything below is a token, a primitive,
+   or a component.  Components never hard-code a colour: they read a token, so
+   the optional light theme is a single block of overrides rather than a second
+   stylesheet.
+   ========================================================================= */
+
+/* --------------------------------------------------------------- tokens */
 :root{
   color-scheme: dark;
-  --bg:#090d14; --bg-1:#0c121c; --bg-2:#0f1724; --bg-3:#16202f;
-  --panel:#0f1724; --panel-2:#0b111b; --raise:#141e2d;
-  --bd:#1b2637; --bd-2:#27364b; --bd-3:#3a4d68;
-  --tx:#e2e9f3; --tx-2:#9aa8bd; --tx-3:#6b7a91;
-  --brand:#3b82f6; --brand-2:#60a5fa; --ai:#22d3ee; --ai-2:#a78bfa;
-  --pos:#34d399; --neg:#f87171; --warn:#fbbf24; --info:#38bdf8;
-  --pos-bg:rgba(52,211,153,.13); --neg-bg:rgba(248,113,113,.13);
-  --warn-bg:rgba(251,191,36,.14); --ai-bg:rgba(34,211,238,.11); --brand-bg:rgba(59,130,246,.13);
-  --r:10px; --r-sm:7px; --sh:0 1px 0 rgba(255,255,255,.02),0 10px 30px -18px rgba(0,0,0,.9);
+
+  /* surfaces, from the page up to a raised control */
+  --bg:#070b12; --bg-1:#0a0f19; --bg-2:#0d1421; --bg-3:#131c2b;
+  --panel:#0e1522; --panel-2:#0a1019; --raise:#141e2e;
+
+  /* borders: hairline, control, emphasis */
+  --bd:#1a2434; --bd-2:#25324a; --bd-3:#33445e;
+
+  /* text: primary, secondary, tertiary */
+  --tx:#e7edf6; --tx-2:#96a5bb; --tx-3:#66748b;
+
+  /* accents, used sparingly: blue is the product, violet marks the AI */
+  --brand:#3b82f6; --brand-2:#8ab0ff; --brand-3:#2563eb;
+  --violet:#8b5cf6; --violet-2:#bda6ff; --ai:#22d3ee;
+
+  /* semantic */
+  --pos:#34d399; --neg:#fb7185; --warn:#fbbf24; --info:#38bdf8;
+  --pos-bg:rgba(52,211,153,.12); --neg-bg:rgba(251,113,133,.12);
+  --warn-bg:rgba(251,191,36,.13); --ai-bg:rgba(34,211,238,.10);
+  --brand-bg:rgba(59,130,246,.14); --violet-bg:rgba(139,92,246,.14);
+  --info-bg:rgba(56,189,248,.12);
+
+  /* spacing scale */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:22px; --s6:30px;
+  /* radius scale */
+  --r-xs:6px; --r-sm:9px; --r:13px; --r-lg:18px; --r-pill:999px;
+  /* elevation */
+  --e1:0 1px 2px rgba(0,0,0,.45);
+  --e2:0 10px 28px -14px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.02);
+  --e3:0 28px 70px -28px rgba(0,0,0,.92);
+  /* motion: short, purposeful, and off when the OS asks */
+  --t-fast:120ms cubic-bezier(.4,0,.2,1);
+  --t:190ms cubic-bezier(.4,0,.2,1);
+  --ring:0 0 0 2px var(--bg),0 0 0 4px rgba(138,176,255,.6);
+
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-  --nav-w:236px;
+  --nav-w:258px;
 }
+
+/* The light theme is the same system with the surfaces inverted.  It is opt-in
+   from the top bar and remembered per browser; the dark theme is the default,
+   so a first visit never flashes a bright page. */
+html[data-theme="light"]{
+  color-scheme: light;
+  --bg:#f4f6fb; --bg-1:#eef1f8; --bg-2:#e9edf6; --bg-3:#dfe5f1;
+  --panel:#ffffff; --panel-2:#f8fafd; --raise:#ffffff;
+  --bd:#dde3ef; --bd-2:#c8d2e4; --bd-3:#a9b7d0;
+  --tx:#0f1729; --tx-2:#4b5b74; --tx-3:#6b7c94;
+  --brand:#2563eb; --brand-2:#1d4ed8; --brand-3:#1e40af;
+  --violet:#7c3aed; --violet-2:#6d28d9; --ai:#0891b2;
+  --pos:#047857; --neg:#be123c; --warn:#b45309; --info:#0369a1;
+  --pos-bg:rgba(4,120,87,.10); --neg-bg:rgba(190,18,60,.09);
+  --warn-bg:rgba(180,83,9,.11); --ai-bg:rgba(8,145,178,.10);
+  --brand-bg:rgba(37,99,235,.09); --violet-bg:rgba(124,58,237,.10);
+  --info-bg:rgba(3,105,161,.10);
+  --e1:0 1px 2px rgba(15,23,41,.07);
+  --e2:0 10px 28px -16px rgba(15,23,41,.28),0 1px 0 rgba(15,23,41,.03);
+  --e3:0 28px 70px -30px rgba(15,23,41,.35);
+  --ring:0 0 0 2px var(--panel),0 0 0 4px rgba(37,99,235,.5);
+}
+
+/* ----------------------------------------------------------- primitives */
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--sans);font-size:13.5px;line-height:1.5}
-a{color:var(--brand-2);text-decoration:none}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--sans);
+  font-size:13.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--brand-2);text-decoration:none;border-radius:var(--r-xs)}
+a:hover{text-decoration:underline}
+h1,h2,h3{font-weight:640;letter-spacing:-.01em}
 .mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .muted{color:var(--tx-2)} .dim{color:var(--tx-3)}
 .pos{color:var(--pos)} .neg{color:var(--neg)} .warn{color:var(--warn)} .ai{color:var(--ai)}
 .hidden{display:none !important}
-.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh}
-.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;background:var(--panel-2);
-  border-right:1px solid var(--bd);overflow:hidden}
-.brand{display:flex;align-items:center;gap:10px;padding:16px 16px 12px;font-weight:650}
-.brand .mark{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;
-  background:linear-gradient(150deg,var(--brand),var(--ai-2));color:#f8fbff;font-weight:800;font-size:13px}
-.brand small{display:block;font-size:10px;color:var(--tx-3);letter-spacing:.08em;text-transform:uppercase}
-.nav{display:flex;flex-direction:column;gap:2px;padding:6px 8px;overflow-y:auto;flex:1}
-.nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;border:1px solid transparent;
-  background:none;color:var(--tx-2);font:inherit;font-size:13px;cursor:pointer;text-align:left;width:100%}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* One visible focus treatment for everything, so keyboard use is never a guess. */
+:focus-visible{outline:none;box-shadow:var(--ring);border-radius:var(--r-sm)}
+.skip-link{position:absolute;left:-999px;top:var(--s2);z-index:60;background:var(--raise);
+  border:1px solid var(--bd-2);border-radius:var(--r-sm);padding:8px 12px;color:var(--tx)}
+.skip-link:focus{left:var(--s4)}
+
+/* -------------------------------------------------------------- layout */
+.app{display:grid;grid-template-columns:var(--nav-w) minmax(0,1fr);min-height:100vh}
+.main{display:flex;flex-direction:column;min-width:0}
+.content{padding:var(--s5) var(--s5) 72px;width:100%;max-width:1560px;margin:0 auto}
+
+/* ------------------------------------------------------------- sidebar */
+.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;
+  background:linear-gradient(180deg,var(--panel-2),var(--bg-1));
+  border-right:1px solid var(--bd);z-index:20}
+.brand{display:flex;align-items:center;gap:10px;padding:var(--s4) var(--s4) var(--s3);
+  font-weight:650;border-bottom:1px solid var(--bd)}
+.brand .mark{width:30px;height:30px;flex:none;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(150deg,var(--brand),var(--violet));color:#fbfdff;font-weight:800;
+  font-size:12.5px;letter-spacing:.02em;box-shadow:var(--e1)}
+.brand .name{min-width:0}
+.brand small{display:block;font-size:10px;color:var(--tx-3);letter-spacing:.09em;
+  text-transform:uppercase;font-weight:600}
+.brand .close-rail{margin-left:auto;display:none}
+
+.nav{display:flex;flex-direction:column;gap:var(--s2);padding:var(--s3) var(--s2) var(--s4);
+  overflow-y:auto;flex:1;scrollbar-width:thin}
+.nav-group{display:flex;flex-direction:column;gap:1px}
+.nav-group-title{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tx-3);padding:var(--s3) 10px 5px}
+.nav-group:first-child .nav-group-title{padding-top:var(--s1)}
+.nav-item{position:relative;display:flex;align-items:center;gap:10px;padding:8px 10px;
+  border-radius:var(--r-sm);border:1px solid transparent;background:none;color:var(--tx-2);
+  font:inherit;font-size:13px;cursor:pointer;text-align:left;width:100%;
+  transition:background var(--t-fast),color var(--t-fast)}
 .nav-item:hover{background:var(--bg-3);color:var(--tx)}
 .nav-item.active{background:var(--brand-bg);color:var(--tx);border-color:var(--bd-2);font-weight:600}
-.nav-item .ico{width:18px;text-align:center;opacity:.9}
-.nav-item .pill{margin-left:auto;font-size:10.5px;padding:1px 7px;border-radius:99px;background:var(--warn-bg);color:var(--warn)}
-.nav-foot{padding:10px 12px;border-top:1px solid var(--bd);font-size:11.5px;color:var(--tx-3)}
-.main{display:flex;flex-direction:column;min-width:0}
-.topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:12px 20px;
-  background:linear-gradient(180deg,var(--bg-1),var(--bg-1) 70%,rgba(12,18,28,.85));border-bottom:1px solid var(--bd)}
-.topbar h1{margin:0;font-size:16px;font-weight:640}
-.topbar .sub{font-size:11.5px;color:var(--tx-3)}
+.nav-item.active::before{content:"";position:absolute;left:-8px;top:50%;transform:translateY(-50%);
+  width:3px;height:18px;border-radius:0 3px 3px 0;background:var(--brand)}
+.nav-item .ico{width:18px;text-align:center;opacity:.9;font-size:13px}
+.nav-item .pill{margin-left:auto;font-size:10.5px;font-weight:700;padding:1px 7px;
+  border-radius:var(--r-pill);background:var(--warn-bg);color:var(--warn)}
+.nav-foot{padding:var(--s3) var(--s4);border-top:1px solid var(--bd);font-size:11.5px;color:var(--tx-3)}
+
+/* -------------------------------------------------------------- topbar */
+.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:var(--s3);
+  padding:var(--s3) var(--s5);background:color-mix(in srgb,var(--bg-1) 88%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--bd)}
+.topbar h1{margin:0;font-size:16.5px;line-height:1.25}
+.topbar .sub{font-size:11.5px;color:var(--tx-3);font-variant-numeric:tabular-nums}
 .spacer{flex:1}
-.content{padding:18px 20px 60px;max-width:1500px}
-.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
-.grid.wide{grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
-.card{background:var(--panel);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;box-shadow:var(--sh)}
-.card h2{margin:0 0 10px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--tx-2);font-weight:600}
-.card .big{font-size:22px;font-weight:650;font-family:var(--mono)}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px}
-.kv dt{color:var(--tx-3)} .kv dd{margin:0;text-align:right;font-family:var(--mono)}
-.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:99px;font-size:11.5px;
-  border:1px solid var(--bd-2);background:var(--bg-3);color:var(--tx-2)}
+.rail-btn{display:none}
+.icon-btn{display:inline-grid;place-items:center;width:34px;height:34px;padding:0;
+  border-radius:var(--r-sm);border:1px solid var(--bd-2);background:var(--raise);color:var(--tx-2)}
+.icon-btn:hover{color:var(--tx);border-color:var(--bd-3)}
+
+/* --------------------------------------------------------------- cards */
+.grid{display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.grid.wide{grid-template-columns:repeat(auto-fit,minmax(400px,1fr))}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:var(--r);
+  padding:var(--s4);box-shadow:var(--e1);transition:border-color var(--t-fast)}
+.card:hover{border-color:var(--bd-2)}
+.card h2{margin:0 0 10px;font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--tx-2);font-weight:700}
+.card .big{font-size:23px;font-weight:660;font-family:var(--mono);letter-spacing:-.02em}
+.card > .dim,.card > p.dim{font-size:11.5px}
+
+/* a metric card: label, value, the period it covers and where it came from */
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat .stat-k{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--tx-3)}
+.stat .stat-v{font-family:var(--mono);font-size:24px;font-weight:660;letter-spacing:-.02em}
+.stat .stat-sub{font-size:11.5px;color:var(--tx-3)}
+
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px var(--s3);font-size:12.5px}
+.kv dt{color:var(--tx-3)} .kv dd{margin:0;text-align:right;font-family:var(--mono);
+  overflow-wrap:anywhere}
+
+/* --------------------------------------------------------------- badges */
+.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:var(--r-pill);
+  font-size:11.5px;font-weight:600;border:1px solid var(--bd-2);background:var(--bg-3);
+  color:var(--tx-2);white-space:nowrap}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
+  opacity:.8;flex:none}
 .badge.ok{background:var(--pos-bg);color:var(--pos);border-color:transparent}
 .badge.bad{background:var(--neg-bg);color:var(--neg);border-color:transparent}
 .badge.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
 .badge.ai{background:var(--ai-bg);color:var(--ai);border-color:transparent}
-button,.btn{font:inherit;padding:6px 12px;border-radius:var(--r-sm);border:1px solid var(--bd-2);
-  background:var(--raise);color:var(--tx);cursor:pointer}
-button:hover{background:var(--bg-3)}
-button.primary{background:var(--brand-bg);border-color:var(--brand);color:var(--brand-2);font-weight:600}
-button.danger{background:var(--neg-bg);border-color:transparent;color:var(--neg)}
-button.ghost{background:none}
-button:disabled{opacity:.45;cursor:not-allowed}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-th{text-align:left;color:var(--tx-3);font-weight:600;text-transform:uppercase;font-size:10.5px;
-  letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--bd)}
-td{padding:7px 8px;border-bottom:1px solid var(--bd);vertical-align:top}
-tr:hover td{background:var(--bg-2)}
-pre{background:var(--panel-2);border:1px solid var(--bd);border-radius:var(--r-sm);padding:10px;
-  overflow:auto;font-family:var(--mono);font-size:12px;white-space:pre-wrap;margin:0}
-textarea,input,select{font:inherit;background:var(--panel-2);color:var(--tx);border:1px solid var(--bd-2);
-  border-radius:var(--r-sm);padding:8px}
-textarea{width:100%;min-height:170px;font-family:var(--mono);font-size:12.5px}
-.empty{padding:18px;text-align:center;color:var(--tx-3);border:1px dashed var(--bd-2);border-radius:var(--r)}
-.split{display:grid;gap:12px;grid-template-columns:1fr 1fr}
-.cal{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
-.cal .day{background:var(--panel);border:1px solid var(--bd);border-radius:var(--r);padding:10px}
-.cal .day h3{margin:0 0 6px;font-size:12px;color:var(--tx-2)}
-.slot{border-left:2px solid var(--ai);padding:5px 7px;margin-bottom:6px;background:var(--bg-2);border-radius:4px;font-size:12px}
-.slot.published{border-color:var(--pos)} .slot.failed{border-color:var(--neg)} .slot.leased{border-color:var(--warn)}
-.slot .t{font-family:var(--mono);color:var(--tx-3);font-size:11px}
-.login{max-width:340px;margin:12vh auto;background:var(--panel);border:1px solid var(--bd);
-  border-radius:14px;padding:22px;box-shadow:var(--sh)}
-.login h1{font-size:16px;margin:0 0 4px} .login p{color:var(--tx-3);font-size:12px;margin:0 0 14px}
-.login input{width:100%;margin-bottom:10px}
-.toast{position:fixed;right:18px;bottom:18px;max-width:420px;background:var(--raise);border:1px solid var(--bd-2);
-  border-radius:var(--r);padding:12px 14px;box-shadow:var(--sh);z-index:20}
-.toast.bad{border-color:var(--neg)} .toast.ok{border-color:var(--pos)}
-.bar{height:8px;border-radius:99px;background:var(--bg-3);overflow:hidden}
-.bar span{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--ai))}
-.chip{display:inline-block;padding:2px 8px;border-radius:99px;background:var(--bg-3);font-size:11.5px;
-  border:1px solid var(--bd);margin:0 4px 4px 0}
-.facts{margin:0;padding-left:16px;color:var(--tx-2);font-size:12px}
-.thumb{width:100%;border-radius:var(--r-sm);border:1px solid var(--bd);background:var(--panel-2)}
-.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
-.toolbar input[type=search],.toolbar input[type=text]{min-width:220px}
-.toolbar select{padding:6px}
-label.row{gap:6px}
+.chip{display:inline-block;padding:2px 9px;border-radius:var(--r-pill);background:var(--bg-3);
+  font-size:11.5px;border:1px solid var(--bd);margin:0 4px 4px 0}
+
+/* ------------------------------------------------------------- controls */
+button,.btn{font:inherit;font-size:13px;font-weight:550;padding:7px 13px;border-radius:var(--r-sm);
+  border:1px solid var(--bd-2);background:var(--raise);color:var(--tx);cursor:pointer;
+  transition:background var(--t-fast),border-color var(--t-fast),transform var(--t-fast)}
+button:hover,.btn:hover{background:var(--bg-3);border-color:var(--bd-3)}
+button:active{transform:translateY(1px)}
+button.primary{background:var(--brand-bg);border-color:var(--brand);color:var(--brand-2);font-weight:650}
+button.primary:hover{background:color-mix(in srgb,var(--brand) 22%,transparent)}
+button.danger{background:var(--neg-bg);border-color:transparent;color:var(--neg);font-weight:650}
+button.warn{background:var(--warn-bg);border-color:transparent;color:var(--warn)}
+button.ghost{background:none;border-color:transparent}
+button.ghost:hover{background:var(--bg-3)}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.row{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap}
+.toolbar{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin:var(--s3) 0}
+.toolbar input[type=search],.toolbar input[type=text]{min-width:230px}
+.toolbar select{padding:7px}
+label.row{gap:6px;font-size:12.5px}
 .cb{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
+
+textarea,input,select{font:inherit;background:var(--panel-2);color:var(--tx);
+  border:1px solid var(--bd-2);border-radius:var(--r-sm);padding:8px 10px}
+textarea:focus,input:focus,select:focus{border-color:var(--brand)}
+textarea{width:100%;min-height:180px;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+
+/* --------------------------------------------------------------- tables */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--tx-3);font-weight:700;text-transform:uppercase;font-size:10px;
+  letter-spacing:.08em;padding:7px 10px;border-bottom:1px solid var(--bd-2);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg-2)}
 tr.rowsel td{background:var(--brand-bg)}
-.kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--bd-2);border-bottom-width:2px;
-  border-radius:5px;padding:1px 5px;background:var(--bg-3);color:var(--tx-2);white-space:nowrap}
+
+pre{background:var(--panel-2);border:1px solid var(--bd);border-radius:var(--r-sm);padding:var(--s3);
+  overflow:auto;font-family:var(--mono);font-size:12px;white-space:pre-wrap;margin:0;line-height:1.5}
+code{font-family:var(--mono);font-size:12.5px}
+.empty{padding:var(--s5);text-align:center;color:var(--tx-3);border:1px dashed var(--bd-2);
+  border-radius:var(--r);background:color-mix(in srgb,var(--panel) 45%,transparent)}
+.facts{margin:0;padding-left:18px;color:var(--tx-2);font-size:12px}
+.facts li{margin:2px 0}
+.split{display:grid;gap:var(--s3);grid-template-columns:1fr 1fr}
+.bar{height:8px;border-radius:var(--r-pill);background:var(--bg-3);overflow:hidden}
+.bar span{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--violet));
+  transition:width var(--t)}
+.thumb{width:100%;border-radius:var(--r-sm);border:1px solid var(--bd);background:var(--panel-2)}
+
+/* ------------------------------------------------------------- calendar */
+.cal{display:grid;gap:var(--s2);grid-template-columns:repeat(auto-fit,minmax(176px,1fr))}
+.cal .day{background:var(--panel);border:1px solid var(--bd);border-radius:var(--r);
+  padding:var(--s3);min-height:96px}
+.cal .day h3{margin:0 0 var(--s2);font-size:11.5px;color:var(--tx-2);font-weight:650;
+  letter-spacing:.02em}
+.slot{border-left:2px solid var(--ai);padding:6px 9px;margin-bottom:6px;background:var(--bg-2);
+  border-radius:var(--r-xs);font-size:12px}
+.slot.published{border-color:var(--pos)} .slot.failed{border-color:var(--neg)}
+.slot.leased{border-color:var(--warn)}
+.slot .t{font-family:var(--mono);color:var(--tx-3);font-size:10.5px}
+
+/* ------------------------------------------------------- guide & states */
+.gnum{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;flex:none;
+  background:var(--brand-bg);color:var(--brand-2);font-family:var(--mono);font-size:12px;
+  font-weight:700;border:1px solid var(--bd-2)}
+.grid .gstep h2{text-transform:none;letter-spacing:0;font-size:13.5px;color:var(--tx)}
+.ghead{display:flex;flex-direction:column;gap:var(--s2)}
+.gtitle{display:flex;align-items:center;gap:var(--s2);min-width:0}
+.gtitle h2{margin:0;min-width:0;overflow-wrap:anywhere}
+.gacts{display:flex;align-items:center;gap:var(--s2);margin-left:auto}
 .freshness{font-size:11.5px;color:var(--tx-3);white-space:nowrap}
 .freshness.stale{color:var(--warn)}
-.attn{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:99px;font-size:11.5px;
-  border:1px solid transparent;background:var(--warn-bg);color:var(--warn);cursor:pointer}
-.attn:hover{filter:brightness(1.15)}
+.attn{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--r-pill);
+  font-size:11.5px;font-weight:600;border:1px solid transparent;background:var(--warn-bg);
+  color:var(--warn);cursor:pointer}
+.attn:hover{filter:brightness(1.12)}
 .attn.zero{background:var(--bg-3);color:var(--tx-3);cursor:default}
-.overlay{position:fixed;inset:0;background:rgba(4,7,12,.62);z-index:30;display:flex;
-  align-items:flex-start;justify-content:center;padding-top:12vh}
-.dialog{width:min(620px,92vw);background:var(--panel);border:1px solid var(--bd-2);border-radius:14px;
-  box-shadow:var(--sh);overflow:hidden}
-.dialog header{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--bd)}
-.dialog header h2{margin:0;font-size:13px;color:var(--tx);text-transform:none;letter-spacing:0}
-.dialog .body{padding:14px}
-.dialog footer{display:flex;gap:8px;justify-content:flex-end;padding:12px 14px;border-top:1px solid var(--bd)}
+.kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--bd-2);border-bottom-width:2px;
+  border-radius:5px;padding:1px 5px;background:var(--bg-3);color:var(--tx-2);white-space:nowrap}
+
+/* -------------------------------------------------- overlay & dialogs */
+.overlay{position:fixed;inset:0;background:rgba(4,7,12,.66);backdrop-filter:blur(3px);z-index:40;
+  display:flex;align-items:flex-start;justify-content:center;padding:11vh var(--s4) var(--s4);
+  animation:fade var(--t-fast) both}
+.dialog{width:min(640px,94vw);background:var(--panel);border:1px solid var(--bd-2);
+  border-radius:var(--r-lg);box-shadow:var(--e3);overflow:hidden;animation:rise var(--t) both}
+.dialog header{display:flex;align-items:center;gap:10px;padding:var(--s3) var(--s4);
+  border-bottom:1px solid var(--bd)}
+.dialog header h2{margin:0;font-size:13.5px;color:var(--tx);text-transform:none;letter-spacing:0}
+.dialog header .dim{margin-left:auto;font-size:11.5px}
+.dialog .body{padding:var(--s4)}
+.dialog footer{display:flex;gap:var(--s2);justify-content:flex-end;padding:var(--s3) var(--s4);
+  border-top:1px solid var(--bd);background:var(--panel-2)}
 .dialog input[type=search],.dialog input[type=text]{width:100%}
-.cmd-list{max-height:44vh;overflow:auto;margin-top:10px}
-.cmd{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer}
+.cmd-list{max-height:46vh;overflow:auto;margin-top:var(--s3)}
+.cmd{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-sm);
+  cursor:pointer}
 .cmd.active,.cmd:hover{background:var(--brand-bg)}
 .cmd .ico{width:18px;text-align:center;color:var(--tx-3)}
 .cmd .hint{margin-left:auto;color:var(--tx-3);font-size:11px}
-.gnum{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;flex:none;
-  background:var(--brand-bg);color:var(--brand-2);font-family:var(--mono);font-size:12px;font-weight:700}
-.grid .gstep h2{text-transform:none;letter-spacing:0;font-size:13.5px;color:var(--tx)}
-.ghead{display:flex;flex-direction:column;gap:8px}
-.gtitle{display:flex;align-items:center;gap:8px;min-width:0}
-.gtitle h2{margin:0;min-width:0;overflow-wrap:anywhere}
-.gacts{display:flex;align-items:center;gap:8px;margin-left:auto}
+
+/* --------------------------------------------------------------- toast */
+.toast{position:fixed;right:var(--s4);bottom:var(--s4);max-width:420px;background:var(--raise);
+  border:1px solid var(--bd-2);border-radius:var(--r);padding:var(--s3) var(--s4);box-shadow:var(--e3);
+  z-index:50;animation:rise var(--t) both}
+.toast.bad{border-color:var(--neg)} .toast.ok{border-color:var(--pos)}
+
+/* ---------------------------------------------------------------- login */
+.login{max-width:360px;margin:12vh auto;background:var(--panel);border:1px solid var(--bd);
+  border-radius:var(--r-lg);padding:var(--s5);box-shadow:var(--e3)}
+.login h1{font-size:17px;margin:0 0 4px}
+.login p{color:var(--tx-3);font-size:12px;margin:0 0 var(--s4)}
+.login input{width:100%;margin-bottom:10px}
+
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------------------------------------------------------- responsive */
+/* Tablet: the rail narrows before it collapses. */
+@media (max-width:1240px){
+  :root{--nav-w:216px}
+  .content{padding-left:var(--s4);padding-right:var(--s4)}
+  .topbar{padding-left:var(--s4);padding-right:var(--s4)}
+}
+/* Below this the rail is an overlay: the content keeps the full width, because a
+   dashboard read on a laptop half-screen should show the table, not the menu. */
+@media (max-width:1080px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .sidebar{position:fixed;inset:0 auto 0 0;width:min(300px,86vw);height:100%;
+    transform:translateX(-102%);transition:transform var(--t);box-shadow:var(--e3)}
+  .sidebar.open{transform:none}
+  .brand .close-rail{display:inline-grid}
+  .rail-btn{display:inline-grid}
+  .scrim{position:fixed;inset:0;background:rgba(4,7,12,.55);z-index:15;animation:fade var(--t-fast) both}
+  .grid.wide{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+}
+/* Narrow laptop / large tablet: the bar wraps into two rows rather than squeezing
+   every control onto one line and overflowing the viewport. */
+@media (max-width:900px){
+  .topbar{flex-wrap:wrap;row-gap:var(--s2)}
+  .topbar .spacer{display:none}
+  .topbar .rail-btn{order:0}
+  .topbar > div:first-of-type{order:1;flex:1 1 auto;min-width:0}
+  .topbar #theme-toggle{order:2}
+  .topbar > button.ghost{order:3}
+  .topbar #attention{order:4;flex:1 1 100%}
+  .topbar #freshness{order:5}
+  .topbar #killbadge{order:6;margin-left:auto}
+  .topbar .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+/* Phone: one column, tighter chrome, tables scroll instead of overflowing. */
+@media (max-width:680px){
+  body{font-size:13px}
+  /* The same numbers are the Overview cards right below: a second copy in the bar
+     only pushes the controls off the screen. */
+  #pipelinesum{display:none}
+  .attn{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .content{padding:var(--s4) var(--s3) 64px}
+  .topbar{padding:10px var(--s3);gap:var(--s2)}
+  .topbar h1{font-size:15px}
+  .grid,.grid.wide,.split{grid-template-columns:minmax(0,1fr)}
+  .card{padding:var(--s3)}
+  .card h2{overflow-wrap:anywhere}
+  .card{overflow-x:auto}
+  table{min-width:520px}
+  .toolbar input[type=search],.toolbar input[type=text],.toolbar select{min-width:0;width:100%}
+  .dialog{width:96vw}
+}
+
+/* Motion is a preference, not a decoration: honour it. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+    transition-duration:.001ms !important}
+}
+
+/* The print view is for the weekly review: no chrome, no rail. */
+@media print{
+  .sidebar,.topbar,.toast,.overlay,.rail-btn{display:none !important}
+  .app{grid-template-columns:minmax(0,1fr)}
+  body{background:#fff;color:#000}
+  .card{break-inside:avoid;border-color:#ccc}
+}
 """
 
 SCRIPT = r"""
@@ -233,26 +461,54 @@ function when(ts){ return ts ? String(ts).replace("T"," ").replace("Z","") : "�
 function pct(a,b){ return b ? Math.min(100, Math.round(100*a/b)) : 0; }
 
 /* ------------------------------------------------------------------ pages */
+// One rail, grouped by what the operator is doing rather than by how the code is
+// organised: the fourth field is the area the page belongs to.  The page ids and
+// labels are what the guide, the palette and the tests key off, so a group is
+// presentation only - it never renames a page or hides one.
 const PAGES = [
-  ["overview","Overview","◧"],["guide","Guida operativa","☰"],
-  ["calendar","Editorial Calendar","▤"],["studio","Content Studio","✎"],
-  ["approvals","Approval Queue","✓"],["published","Published Posts","↗"],["inbox","Community Inbox","✉"],
-  ["intelligence","Feedback Intelligence","◇"],["analytics","Analytics","▦"],["accounts","Social Accounts","◎"],
-  ["agents","Agent Activity","⚙"],["logs","Logs & Audit","≡"],["settings","Settings","⚒"],
+  ["overview","Overview","◧","Panoramica"],["guide","Guida operativa","☰","Panoramica"],
+  ["calendar","Editorial Calendar","▤","Pianificazione"],
+  ["studio","Content Studio","✎","Studio contenuti"],
+  ["approvals","Approval Queue","✓","Approvazioni"],["published","Published Posts","↗","Approvazioni"],
+  ["inbox","Community Inbox","✉","Community e feedback"],
+  ["intelligence","Feedback Intelligence","◇","Community e feedback"],
+  ["analytics","Analytics","▦","Analytics e report"],
+  ["agents","Agent Activity","⚙","Agenti e automazioni"],["accounts","Social Accounts","◎","Agenti e automazioni"],
+  ["logs","Logs & Audit","≡","Registro e impostazioni"],["settings","Settings","⚒","Registro e impostazioni"],
 ];
+
+function navGroups(){
+  const groups = [];
+  PAGES.forEach(page => {
+    const name = page[3] || "Altro";
+    let group = groups.find(g => g.name === name);
+    if(!group){ group = {name, items: []}; groups.push(group); }
+    group.items.push(page);
+  });
+  return groups;
+}
 
 function renderNav(){
   const counts = STATE.status?.approvals?.pending || 0;
   const titleEl = $("#page-title");
   if(titleEl){ const found = PAGES.find(p => p[0] === STATE.page); titleEl.textContent = found ? found[1] : "Overview"; }
-  $("#nav").innerHTML = PAGES.map(([id,label,ico]) => `
-    <button class="nav-item ${STATE.page===id?"active":""}" onclick="go('${id}')">
-      <span class="ico">${ico}</span><span>${label}</span>
-      ${id==="approvals" && counts ? `<span class="pill">${counts}</span>` : ""}
-    </button>`).join("");
+  $("#nav").innerHTML = navGroups().map(group => `
+    <div class="nav-group">
+      <div class="nav-group-title">${esc(group.name)}</div>
+      ${group.items.map(([id,label,ico]) => `
+        <button class="nav-item ${STATE.page===id?"active":""}" onclick="go('${id}')"
+                ${STATE.page===id?`aria-current="page"`:``}>
+          <span class="ico" aria-hidden="true">${ico}</span><span>${label}</span>
+          ${id==="approvals" && counts ? `<span class="pill" aria-label="${counts} in attesa di decisione">${counts}</span>` : ""}
+        </button>`).join("")}
+    </div>`).join("");
 }
 
-function go(page){ STATE.page = page; location.hash = page; renderNav(); render(); }
+function go(page){
+  STATE.page = page; location.hash = page; renderNav(); render();
+  // On a narrow screen the rail covers the page it just navigated to.
+  if(window.matchMedia("(max-width:1080px)").matches) closeRail();
+}
 window.go = go;
 
 function editingNow(){
@@ -1013,7 +1269,7 @@ document.addEventListener("keydown", (e) => {
   const active = document.activeElement || {};
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "") || active.isContentEditable;
   if((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === "k"){ e.preventDefault(); openPalette(); return; }
-  if(e.key === "Escape"){ closeDialog(); return; }
+  if(e.key === "Escape"){ closeDialog(); closeRail(); return; }
   if(typing) return;
   if(e.key === "?"){ e.preventDefault(); showHelp(); return; }
   if(e.key === "/"){ e.preventDefault(); focusSearch(); return; }
@@ -1030,6 +1286,43 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+/* ---------------------------------------------------- theme & responsive rail */
+// The dark theme is the default and the light one is opt-in, remembered per
+// browser.  Both are the same tokens, so nothing else in here knows which one is
+// on.  A private window that refuses localStorage still gets the toggle: it just
+// forgets it on reload.
+const THEME_KEY = "socialmanager.theme";
+function applyTheme(theme){
+  document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark");
+}
+function currentTheme(){
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+window.toggleTheme = () => {
+  const next = currentTheme() === "light" ? "dark" : "light";
+  applyTheme(next);
+  try { localStorage.setItem(THEME_KEY, next); } catch(e) { /* the visit still works */ }
+};
+function initTheme(){
+  let stored = null;
+  try { stored = localStorage.getItem(THEME_KEY); } catch(e) { stored = null; }
+  applyTheme(stored === "light" ? "light" : "dark");
+}
+
+function railButton(){ return $("#rail-btn"); }
+window.openRail = () => {
+  $("#rail").classList.add("open");
+  $("#scrim").classList.remove("hidden");
+  const btn = railButton(); if(btn) btn.setAttribute("aria-expanded", "true");
+};
+window.closeRail = () => {
+  const rail = $("#rail");
+  if(rail) rail.classList.remove("open");
+  const scrim = $("#scrim");
+  if(scrim) scrim.classList.add("hidden");
+  const btn = railButton(); if(btn) btn.setAttribute("aria-expanded", "false");
+};
+
 /* ------------------------------------------------------------------ boot */
 function routeFromHash(){
   const page = (location.hash || "#overview").slice(1);
@@ -1037,6 +1330,9 @@ function routeFromHash(){
 }
 window.addEventListener("hashchange", () => { STATE.page = routeFromHash(); renderNav(); render(); });
 STATE.page = routeFromHash();
+initTheme();
+const scrim = $("#scrim");
+if(scrim) scrim.onclick = closeRail;
 renderNav();
 refresh();
 setInterval(renderFreshness, 1000);
@@ -1067,16 +1363,19 @@ def _esc(text: object) -> str:
 
 
 HTML = """<!doctype html>
-<html lang="it"><head>
+<html lang="it" data-theme="dark"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<script>try{var t=localStorage.getItem("socialmanager.theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 <title>SelfTrade Social Manager</title>
 <style>__STYLE__</style>
 </head><body>
+<a class="skip-link" href="#content">Salta al contenuto</a>
 <div class="app">
-  <aside class="sidebar">
-    <div class="brand"><span class="mark">ST</span>
-      <span class="name">Social Manager<small>selftrade · admin</small></span></div>
+  <aside class="sidebar" id="rail" aria-label="Navigazione principale">
+    <div class="brand"><span class="mark" aria-hidden="true">ST</span>
+      <span class="name">Social Manager<small>selftrade · admin</small></span>
+      <button class="icon-btn close-rail" onclick="closeRail()" aria-label="Chiudi il menu">✕</button></div>
     <nav class="nav" id="nav"></nav>
     <div class="nav-foot">
       <div id="modebadge"></div>
@@ -1086,19 +1385,22 @@ HTML = """<!doctype html>
   </aside>
   <div class="main">
     <header class="topbar">
-      <div>
+      <button class="icon-btn rail-btn" onclick="openRail()" aria-label="Apri il menu" aria-controls="rail" aria-expanded="false" id="rail-btn">☰</button>
+      <div style="min-width:0">
         <h1 id="page-title">Overview</h1>
         <div class="sub" id="pipelinesum"></div>
       </div>
       <span class="spacer"></span>
       <span id="attention"></span>
-      <span id="freshness" class="freshness"></span>
+      <span id="freshness" class="freshness" role="status" aria-live="polite"></span>
       <div class="row" id="killbadge"></div>
+      <button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Tema chiaro / scuro" aria-label="Cambia tema">◐</button>
       <button class="ghost" onclick="refresh()" title="Aggiorna (r)">Aggiorna</button>
     </header>
-    <main class="content" id="content"></main>
+    <main class="content" id="content" tabindex="-1"></main>
   </div>
 </div>
+<div id="scrim" class="scrim hidden"></div>
 <div id="toast" class="toast hidden"></div>
 <script>window.__BOOT__ = __DASHBOARD_BOOTSTRAP__;</script>
 <script>__SCRIPT__</script>
