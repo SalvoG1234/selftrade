@@ -13,6 +13,15 @@ is the git history itself; this file is the short version.
 
 ### Added
 
+- **The Content Studio draws the platform's format, and refuses an approval it cannot stand** — a
+  post on X with its link card and the number X would really count (a link weighs 23 characters),
+  cut into a numbered thread past 280; an Instagram caption with its carousel of the generated
+  images and the *… more* cut the feed applies; a GitHub body with its markdown rendered. Beside it,
+  every field the platform would refuse with the measured value next to the limit, and the policy's
+  own verdict as its own line rather than reimplemented. `socialmanager/preview.py` reads its
+  ceilings from the same `PLATFORM_LIMITS` the policy gate uses, so the panel cannot promise more
+  than the gate allows, and an approval is refused with a `409` naming the field while no variant
+  could actually go out. *(this change)*
 - **API keys page** — the one credential a config file cannot hold. `GET /api/keys` reports, per
   rail credential, the source **in force** (an exported variable always wins over the local file)
   and a SHA-256 fingerprint; `POST /api/keys` stores or forgets one behind an explicit

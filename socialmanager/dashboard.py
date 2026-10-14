@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, dashboard_ui, obs, secrets
+from . import __version__, dashboard_ui, obs, preview, secrets
 from .db import to_ts, utcnow
 from .models import EditorialState, Platform
 from .policy import kill_switch_engaged
@@ -473,6 +473,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return {"items": ctx.db.items(
                 state=_str_arg(query, "state"), category=_str_arg(query, "category"),
                 platform=_str_arg(query, "platform"), limit=limit)}, 200
+        if path.startswith("/api/content/") and path.endswith("/previews"):
+            # How each variant would look on its platform, and what would refuse
+            # it.  A read path: it measures and judges, it never writes.
+            item_id = _int_path(path, "/api/content/", suffix="/previews")
+            item = ctx.db.item(item_id) if item_id else None
+            if item is None:
+                return {"error": "item not found"}, 404
+            return preview.preview_item(item, settings=ctx.settings,
+                                        accounts=ctx.db.accounts()), 200
         if path.startswith("/api/content/"):
             item_id = _int_path(path, "/api/content/")
             item = ctx.db.item(item_id) if item_id else None
@@ -572,22 +581,65 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/actions/publish":
             publisher = ctx.publisher()
             payloads = []
+            live = bool(body.get("live"))
+            format_report: dict[str, Any] | None = None
             if body.get("variant_id"):
+                variant_id = int(body["variant_id"])
+                variant = ctx.db.variant(variant_id)
+                if variant is not None:
+                    format_report = preview.preview_variant(
+                        variant, item=variant.get("item"), settings=ctx.settings,
+                    )["verify"]
+                    # The gate stands in front of a real send only.  A simulation
+                    # still runs and carries the findings back: seeing them is the
+                    # point of a dry run.
+                    if live and not format_report["ok"]:
+                        errors = [f for f in format_report["findings"]
+                                  if f["severity"] == preview.ERROR]
+                        reason = "; ".join(f"{f['field']}: {f['message']}" for f in errors[:3])
+                        ctx.db.audit("publish.refused", actor=actor,
+                                     subject=f"content_variant:{variant_id}",
+                                     detail={"errors": len(errors), "reason": reason})
+                        return {"error": f"variante {variant_id} non valida per l'invio live "
+                                          f"({reason})", "findings": errors}, 409
                 payloads.append(publisher.publish_variant(
-                    int(body["variant_id"]), simulate=not bool(body.get("live")), actor=actor))
+                    variant_id, simulate=not live, actor=actor))
             elif body.get("item_id"):
                 payloads.extend(publisher.publish_item(
-                    int(body["item_id"]), simulate=not bool(body.get("live")), actor=actor))
+                    int(body["item_id"]), simulate=not live, actor=actor))
             else:
                 payloads.extend(publisher.run_due(
-                    limit=5, worker="dashboard", simulate=not bool(body.get("live"))))
-            return {"results": [p.to_dict() for p in payloads]}, 200
+                    limit=5, worker="dashboard", simulate=not live))
+            return {"results": [p.to_dict() for p in payloads],
+                    "format": format_report}, 200
         if path == "/api/approvals":
             manager = ctx.approvals()
             decision = str(body.get("decision") or "")
             note = str(body.get("note") or "")
             if decision not in {"approved", "rejected"}:
                 return {"error": "decision must be 'approved' or 'rejected'"}, 400
+            # Approving is a decision about content that can go out, so the format
+            # gate runs first and refuses with the field-level reason.  Both entry
+            # points are covered: the queue decides by ``approval_id`` and the batch
+            # button loops over exactly that call, so a gate on one of them alone
+            # would be bypassable from the page.
+            target = None
+            if body.get("approval_id"):
+                approval = ctx.db.get("approval", int(body["approval_id"]))
+                if approval is not None and str(approval.get("subject_type")) == "content_item":
+                    target = ctx.db.item(int(approval.get("subject_id") or 0))
+            elif body.get("item_id"):
+                target = ctx.db.item(int(body["item_id"]))
+            if decision == "approved" and target is not None:
+                gate = preview.preview_item(target, settings=ctx.settings,
+                                            accounts=ctx.db.accounts())
+                if not gate["approvable"]:
+                    reason = preview.refusal_message(gate)
+                    ctx.db.audit("approval.refused", actor=actor,
+                                 subject=f"content_item:{target.get('id')}",
+                                 detail={"reason": reason, "blocked": gate["blocked"]})
+                    return {"error": reason, "blocked": gate["blocked"],
+                            "ready": gate["ready"]}, 409
             if body.get("approval_id"):
                 row = manager.decide(int(body["approval_id"]), decision,
                                      decided_by=actor, note=note)

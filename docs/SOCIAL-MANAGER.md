@@ -4,8 +4,8 @@ An AI system that promotes **this** repository — `SalvoG1234/selftrade` — on
 Instagram, in Italian and English, without inventing a single number, and without ever being able
 to publish something the deterministic gate has not passed.
 
-It is a second, separate program inside this repository: `socialmanager/` (~11,200 lines, with a
-suite of its own — 235 cases in 11 modules) alongside the trading runtime it talks about. It does not import `selftrade`, cannot
+It is a second, separate program inside this repository: `socialmanager/` (~13,000 lines, with a
+suite of its own — 266 cases in 12 modules) alongside the trading runtime it talks about. It does not import `selftrade`, cannot
 place an order, and cannot write to a repository, an issue or a discussion — see
 [the connectors](SOCIAL-CONNECTORS.md) for why that is structural rather than a promise.
 
@@ -32,6 +32,7 @@ place an order, and cannot write to a repository, an issue or a discussion — s
 | Orchestrator | [`socialmanager/orchestrator.py`](../socialmanager/orchestrator.py) | sequences a run, owns the transaction boundaries, and is the only thing the CLI and the dashboard talk to |
 | GitHub Connector | [`socialmanager/github.py`](../socialmanager/github.py) | reads releases, commits, issues, discussions and docs; **structurally** read-only (every request goes through a `GET`-only helper) |
 | Content Agent | [`socialmanager/content.py`](../socialmanager/content.py) | turns stored events into briefs, then into one variant per platform and language; refuses to write without a fact |
+| Platform Preview | [`socialmanager/preview.py`](../socialmanager/preview.py) | measures a draft against the platform's real format — ceilings, link weight, thread split, feed cut, markdown — and refuses an approval while no variant could actually be published |
 | Visual Generator | [`socialmanager/visuals.py`](../socialmanager/visuals.py) | real PNG cards (5×7 bitmap font + zlib, so no image dependency) and Reel storyboards as SVG frames |
 | Editorial Planner | [`socialmanager/planner.py`](../socialmanager/planner.py) | the calendar: slots, weekly targets, category share, min gap, quiet hours. It never invents an event to fill a slot |
 | Publisher | [`socialmanager/publisher.py`](../socialmanager/publisher.py) | the **only** component that publishes; re-checks the policy result, the approval, the duplicate and the lease before each call |
@@ -132,6 +133,29 @@ fill a chart with a plausible-looking number. Sessions are password-based (rate-
 stored hash, never the password itself), every mutation checks the CSRF token and the origin, and a
 non-loopback bind is refused unless a password is configured.
 
+### The Content Studio shows the format, not a text box
+
+Every variant is drawn the way its platform would show it, by `GET /api/content/<id>/previews`: a
+post on X with its link card and the number X would really count (a link weighs 23 characters however
+long it is), split into a numbered thread when the body is past 280; an Instagram caption with its
+carousel of the actual generated images, the *… more* cut exactly where the feed stops it, and the
+hashtags in their own field; a GitHub body with its markdown rendered into headings, lists and code
+blocks. Nothing is invented on the way: with no account stored the preview says the account is not
+connected, which is what the connector reports too.
+
+Beside it, every field the platform would refuse, with the measured value next to the limit: an empty
+body, a body over the ceiling, a truncated or malformed URL (the truncation in the content engine is
+exactly how one can happen), more links or hashtags than `policy` allows, an Instagram post with no
+image. The policy's own last verdict is shown underneath as its own line rather than reimplemented —
+two named sections, one gate.
+
+The preview never softens that gate: where X's count is smaller than the raw one the panel shows both
+numbers and still refuses what the policy will refuse. **An approval is refused while no variant
+passes**: the answer is a `409` naming the field (*X/it: il corpo è vuoto*), the item stays in
+`draft`, no approval row is created, and the refusal is written to the audit. Warnings inform and do
+not refuse; a live send of one named variant is refused the same way, while a simulation still runs
+and carries the findings back, because seeing them is what a dry run is for.
+
 ### The operational guide, in the panel
 
 The **Guida operativa** page is the answer to "what do I do now, and in what order". It is not a
@@ -203,15 +227,16 @@ browser default, the content is one *Salta al contenuto* skip-link away, the cur
 
 ## Tests: what was actually run
 
-The social manager's own suite is **235 cases in 11 modules**, all passing, and it runs inside the
-repository's suite (1133 tests in 47 modules) — the number the documentation ledger measures and CI
+The social manager's own suite is **266 cases in 12 modules**, all passing, and it runs inside the
+repository's suite (1164 tests in 48 modules) — the number the documentation ledger measures and CI
 enforces:
 
 | Module | Tests | What it pins down |
 | --- | --- | --- |
-| `test_social_dashboard.py` | 55 | the panel over real HTTP: login, CSRF, same-origin, the thirteen pages, the operational guide (including a guard that fails if a rail page has no step), the batch-approval audit trail, the kill switch button |
+| `test_social_dashboard.py` | 63 | the panel over real HTTP: login, CSRF, same-origin, the thirteen pages, the operational guide (including a guard that fails if a rail page has no step), the batch-approval audit trail, the kill switch button, and the format gate on the approval and live-publish paths (both entry points, plus the warning that must *not* refuse) |
 | `test_social_policy.py` | 29 | every one of the 13 checks, including the failing-safe path and the duplicate rule |
 | `test_social_content.py` | 23 | facts, both languages, the fallback when no model is reachable, truncation, unsupported numbers |
+| `test_social_preview.py` | 23 | the per-platform format: the ceilings read from one declaration, the X link weight, the thread split, the Instagram feed cut, markdown as blocks and not markup, and the refusals (empty body, truncated URL, more links than policy allows, Instagram without an image) |
 | `test_social_db.py` | 26 | schema, constraints, retention, the audit chain, backup/restore, and the private-store permissions (the mask rule on every platform, the POSIX file modes) |
 | `test_social_http.py` | 17 | the shared client's own security behaviour: no redirect chased, no header with CR/LF, no clear-text endpoint off the machine, retries, and the redacted `api_call` record — plus the one model call that carries an API key |
 | `test_social_deploy.py` | 15 | Dockerfile, compose, `.env.example` and the workflow against the code they deploy |
@@ -222,8 +247,8 @@ enforces:
 | `test_social_config.py` | 13 | defaults, overrides, unknown keys, the refusals |
 
 ```text
-python -m pytest tests/test_social_*.py -q      # the social manager's own 235 cases: green
-python -m pytest -q                            # 1133 passed (the whole repository)
+python -m pytest tests/test_social_*.py -q      # the social manager's own 266 cases: green
+python -m pytest -q                            # 1164 passed (the whole repository)
 python -m selftrade verify --ledger            # every count in the docs equals the measurement
 ```
 

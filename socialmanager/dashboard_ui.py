@@ -260,6 +260,50 @@ code{font-family:var(--mono);font-size:12.5px}
 .facts{margin:0;padding-left:18px;color:var(--tx-2);font-size:12px}
 .facts li{margin:2px 0}
 .split{display:grid;gap:var(--s3);grid-template-columns:1fr 1fr}
+
+/* --------------------------------------------- the per-platform preview */
+.pv{border:1px solid var(--bd);border-radius:var(--r);background:var(--bg-2);padding:var(--s3);margin-top:var(--s2)}
+.pv-head{display:flex;gap:var(--s2);align-items:center;font-size:12.5px}
+.pv-avatar{width:28px;height:28px;border-radius:var(--r-pill);display:grid;place-items:center;flex:0 0 auto;
+  background:linear-gradient(135deg,var(--brand),var(--violet));color:#fff;font-weight:700;font-size:12px}
+.pv-name{font-weight:600;overflow-wrap:anywhere}
+.pv-post{padding:var(--s2) 0;border-bottom:1px solid var(--bd)}
+.pv-post:last-child{border-bottom:0;padding-bottom:0}
+.pv-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;margin-top:var(--s2)}
+.pv-foot{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--tx-3);margin-top:var(--s2)}
+.pv-card{border:1px solid var(--bd);border-radius:var(--r-sm);padding:1px 8px;color:var(--tx-2)}
+.pv-more{color:var(--tx-3)}
+.pv-media{display:flex;gap:4px;margin-top:var(--s2)}
+.pv-img{max-width:100%;max-height:170px;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--bd)}
+.pv-dots{display:flex;gap:4px;justify-content:center;margin-top:6px}
+.pv-dot{width:6px;height:6px;border-radius:var(--r-pill);background:var(--bd-3)}
+.pv-dot.on{background:var(--brand)}
+.pv-tags{margin-top:var(--s2);color:var(--brand-2);font-size:12.5px;overflow-wrap:anywhere}
+.pv-h{font-weight:650;font-size:15px;margin-top:var(--s2);overflow-wrap:anywhere}
+.pv-h[data-level="1"]{font-size:16px}
+.pv-p{margin:var(--s2) 0;overflow-wrap:anywhere}
+.pv-list{margin:var(--s2) 0 var(--s2) 18px;padding:0}
+.pv-code{background:var(--bg-3);border:1px solid var(--bd);border-radius:var(--r-sm);padding:var(--s2);
+  overflow-x:auto;font-family:var(--mono);font-size:12px;margin:var(--s2) 0;white-space:pre-wrap}
+.pv-quote{margin:var(--s2) 0;padding-left:var(--s3);border-left:3px solid var(--bd-2);color:var(--tx-2)}
+.pv-gh-title{font-size:15px;font-weight:650;margin-top:var(--s2);overflow-wrap:anywhere}
+.pv-path{color:var(--brand-2);overflow-wrap:anywhere}
+.pv code{font-family:var(--mono);font-size:12px;background:var(--bg-3);padding:0 4px;border-radius:var(--r-xs)}
+
+/* the validation panel: what the platform would refuse, field by field */
+.checks{margin-top:var(--s2);border-top:1px solid var(--bd);padding-top:var(--s2)}
+.bar{height:4px;border-radius:var(--r-pill);background:var(--bg-3);overflow:hidden;margin-top:6px}
+.bar > i{display:block;height:100%;background:var(--brand);border-radius:var(--r-pill)}
+.bar.warn > i{background:var(--warn)}
+.bar.bad > i{background:var(--neg)}
+.chk{display:flex;gap:var(--s2);font-size:12px;margin-top:4px;align-items:baseline}
+.chk-field{font-family:var(--mono);font-size:11px;color:var(--tx-3);flex:0 0 auto;min-width:74px}
+.chk.error{color:var(--neg)}
+.chk.warning{color:var(--warn)}
+.chk.ok{color:var(--tx-3)}
+.ed summary{cursor:pointer;font-size:12px;color:var(--tx-2);margin-top:var(--s2)}
+.ed summary:hover{color:var(--tx)}
+button[disabled]{opacity:.45;cursor:not-allowed}
 .bar{height:8px;border-radius:var(--r-pill);background:var(--bg-3);overflow:hidden}
 .bar span{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--violet));
   transition:width var(--t)}
@@ -711,7 +755,7 @@ RENDERERS.studio = async () => {
                value="${esc(STATE.studioQuery || "")}" oninput="studioQuery(this.value)">
         <select id="studio-select" onchange="loadItem(this.value)"></select>
         <button onclick="act('/api/actions/produce', {limit:3})">+ Nuove bozze</button>
-        <span class="dim">confronto IT/EN e anteprima per piattaforma</span>
+        <span class="dim">limiti, link e campi obbligatori di ogni piattaforma, controllati prima dell'approvazione</span>
       </div>
     </div>
     <div id="studio-body" style="margin-top:14px"><div class="empty">scegli una bozza…</div></div>`;
@@ -749,20 +793,24 @@ window.studioQuery = (value) => {
 window.loadItem = async (id) => {
   STATE.studioId = Number(id);
   markDirty(false);
-  const item = await api(`/api/content/${id}`);
+  const [item, previews] = await Promise.all([
+    api(`/api/content/${id}`), api(`/api/content/${id}/previews`)]);
+  STATE.studioPreviews = previews || null;
   const variants = item.variants || [];
   const byPlatform = {};
   variants.forEach(v => { (byPlatform[v.platform] = byPlatform[v.platform] || {})[v.lang] = v; });
   const blocks = Object.entries(byPlatform).map(([platform, langs]) => {
     const it = langs.it, en = langs.en;
     const preview = (v) => v ? `
-      <textarea id="edit-${v.id}" data-variant="${v.id}" oninput="markDirty(true)">${esc(v.body)}</textarea>
+      ${pvVariant(pvOf(v.id), item)}
+      <details class="ed"><summary>Modifica il testo</summary>
+      <textarea id="edit-${v.id}" data-variant="${v.id}" oninput="markDirty(true)">${esc(v.body)}</textarea></details>
       <div class="row" style="margin-top:6px">
         ${stateBadge(v.policy_state)} <span class="dim">${v.char_count} caratteri · ${esc(v.generator)}</span>
         <span class="spacer"></span>
         <button onclick="saveVariant(${v.id})">Salva</button>
         <button onclick="act('/api/actions/publish', {variant_id:${v.id}, live:false})">Simula invio</button>
-        <button class="primary" onclick="confirmPublish(${v.id}, '${esc(platform)}')">Pubblica (live)</button>
+        <button class="primary" onclick="confirmPublish(${v.id}, '${esc(platform)}')"${pvReady(pvOf(v.id)) ? "" : " disabled title=\"correggi i campi segnati nell'anteprima\""}>Pubblica (live)</button>
       </div>
       ${v.hashtags ? `<div class="row" style="margin-top:6px"><span class="dim">hashtag:</span> ${esc(v.hashtags)}</div>` : ""}
       ${(v.media||[]).length ? `<div class="row" style="margin-top:6px">${(v.media||[]).map(m =>
@@ -778,9 +826,10 @@ window.loadItem = async (id) => {
       <div class="row">${badge(item.category)} ${stateBadge(item.state)} ${badge("rischio "+item.risk, item.risk==="high"||item.risk==="sensitive"?"bad":"")}
         <span class="dim">previsto: ${esc(item.planned_for || "non pianificato")}</span>
         <span class="spacer"></span>
-        <button class="primary" onclick="act('/api/approvals', {item_id:${item.id}, decision:'approved'})">Approva</button>
+        <button class="primary" onclick="act('/api/approvals', {item_id:${item.id}, decision:'approved'})"${pvApprovable() ? "" : " disabled title=\"nessuna variante supera la validazione: correggi i campi segnati sotto\""}>Approva</button>
         <button class="danger" onclick="act('/api/approvals', {item_id:${item.id}, decision:'rejected'})">Rifiuta</button>
       </div>
+      <div class="row" style="margin-top:6px">${pvSummary()}</div>
       <h2 style="margin-top:12px">Fatti verificabili (ogni affermazione viene da qui)</h2>
       <ul class="facts">${(item.facts||[]).map(f => `<li>${esc(f.claim)} — <a href="${esc(f.source_url)}" target="_blank" rel="noopener">${esc(f.source_url)}</a></li>`).join("") || "<li class='dim'>nessun fatto</li>"}</ul>
       ${item.notes ? `<div class="muted" style="margin-top:8px">note del generatore: ${esc(item.notes)}</div>` : ""}
@@ -793,6 +842,134 @@ window.saveVariant = async (id) => {
   if(data) markDirty(false);
 };
 window.markDirty = (on) => { STATE.dirty = !!on; renderFreshness(); };
+/* ------------------------------------------------- the format preview ($4) */
+// The server measures the draft against the platform and sends text, never
+// markup; every value here goes through esc() on the way into the page, and the
+// only element built from a link target is an <a> for an http(s) one.  A body
+// containing <script> therefore reads as text.
+STATE.studioPreviews = null;
+function pvOf(variantId){
+  const list = (STATE.studioPreviews && STATE.studioPreviews.variants) || [];
+  return list.find(v => v.variant_id === variantId) || null;
+}
+function pvReady(pv){ return !pv || !pv.verify ? true : !!pv.verify.ok; }
+function pvApprovable(){ return !STATE.studioPreviews || !!STATE.studioPreviews.approvable; }
+function pvAccount(pv){
+  const acc = ((STATE.studioPreviews && STATE.studioPreviews.accounts) || {})[pv.platform] || null;
+  return (acc && acc.handle) ? "@" + acc.handle : pv.label + " · account non collegato";
+}
+function pvAvatar(pv){
+  const acc = ((STATE.studioPreviews && STATE.studioPreviews.accounts) || {})[pv.platform] || null;
+  const name = (acc && acc.handle) || pv.label;
+  return esc(String(name).slice(0, 1).toUpperCase());
+}
+function pvSummary(){
+  const p = STATE.studioPreviews;
+  if(!p) return `<span class="dim">anteprime non disponibili: il server non ha risposto</span>`;
+  if(!(p.variants || []).length) return `<span class="dim">questo item non ha varianti</span>`;
+  return `${badge(p.ready.length + " pronte", p.ready.length ? "ok" : "")} `+
+    `${p.blocked.length ? badge(p.blocked.length + " da correggere", "bad") : ""} `+
+    `<span class="dim">${p.error_count} errori · ${p.warning_count} avvisi</span>` +
+    `${p.approvable ? "" : ` <span class="dim">${esc(p.blocked_reason)}</span>`}`;
+}
+function pvSpans(spans){
+  return (spans || []).map(sp => {
+    if(sp.k === "code") return `<code>${esc(sp.v)}</code>`;
+    if(sp.k === "strong") return `<strong>${esc(sp.v)}</strong>`;
+    if(sp.k === "link" && /^https?:\/\//i.test(sp.href || ""))
+      return `<a href="${esc(sp.href)}" target="_blank" rel="noopener">${esc(sp.v)}</a>`;
+    if(sp.k === "link") return `<span class="pv-path">${esc(sp.v)} · ${esc(sp.href)}</span>`;
+    return esc(sp.v);
+  }).join("");
+}
+function pvBlock(b){
+  if(b.kind === "code") return `<pre class="pv-code">${esc(b.text)}</pre>`;
+  if(b.kind === "list") return `<${b.ordered ? "ol" : "ul"} class="pv-list">` +
+    `${b.items.map(i => `<li>${pvSpans(i.spans)}</li>`).join("")}</${b.ordered ? "ol" : "ul"}>`;
+  if(b.kind === "quote") return `<blockquote class="pv-quote">${pvSpans(b.spans)}</blockquote>`;
+  if(b.kind === "heading") return `<div class="pv-h" data-level="${Number(b.level)||2}">${pvSpans(b.spans)}</div>`;
+  return `<p class="pv-p">${pvSpans(b.spans)}</p>`;
+}
+function pvMediaTiles(pv){
+  const files = pv.media || [];
+  if(!files.length) return "";
+  return `<div class="pv-media">${files.map(m =>
+    `<img class="pv-img" src="/media/${esc(String(m).split(/[\\/]/).pop())}" alt="${esc(pv.alt_text || pv.label)}" loading="lazy">`).join("")}</div>` +
+    (files.length > 1 ? `<div class="pv-dots">${files.map((_, i) =>
+      `<span class="pv-dot ${i === 0 ? "on" : ""}"></span>`).join("")}</div>` : "");
+}
+function pvX(pv){
+  const m = pv.measured || {}, spec = pv.spec || {};
+  const segments = (m.thread || []).length ? m.thread : [pv.body];
+  const thread = segments.length > 1;
+  const url = (m.urls || [])[0] || "";
+  const host = url ? String(url).split("//").pop().split("/")[0] : "";
+  return `<div class="pv">
+    <div class="pv-head"><span class="pv-avatar">${pvAvatar(pv)}</span>
+      <span class="pv-name">${esc(pvAccount(pv))}</span><span class="spacer"></span>
+      <span class="dim">${thread ? segments.length + " post nel thread" : "1 post"}</span></div>
+    ${segments.map((seg, i) => `<div class="pv-post">
+      <div class="pv-body">${esc(seg)}</div>
+      ${i === 0 ? pvMediaTiles(pv) : ""}
+      <div class="pv-foot"><span class="mono">${i + 1}/${segments.length}</span>
+        <span>${seg.length}/${spec.body_limit}</span>
+        ${i === 0 && host ? `<span class="pv-card">${esc(host)}</span>` : ""}</div>
+    </div>`).join("")}
+  </div>`;
+}
+function pvInstagram(pv){
+  const feed = (pv.measured || {}).feed || {head: pv.body, truncated: false};
+  return `<div class="pv">
+    <div class="pv-head"><span class="pv-avatar">${pvAvatar(pv)}</span>
+      <span class="pv-name">${esc(pvAccount(pv))}</span><span class="spacer"></span>
+      <span class="dim">${(pv.media || []).length ? (pv.media || []).length + " nel carosello" : "nessun media"}</span></div>
+    ${pvMediaTiles(pv)}
+    <div class="pv-body">${esc(feed.head)}${feed.truncated ? `<span class="pv-more"> … altro</span>` : ""}</div>
+    ${feed.truncated ? `<div class="dim" style="font-size:11.5px">il feed si ferma a ${Number(feed.cut_at)} caratteri su ${Number(feed.total)}</div>` : ""}
+    ${pv.hashtags ? `<div class="pv-tags">${esc(pv.hashtags)}</div>`
+      : `<div class="dim" style="font-size:11.5px">nessun hashtag nel campo separato</div>`}
+  </div>`;
+}
+function pvGithub(pv, item){
+  const blocks = (pv.measured || {}).blocks || [];
+  return `<div class="pv">
+    <div class="pv-head"><span class="pv-avatar">${pvAvatar(pv)}</span>
+      <span class="pv-name">${esc(pvAccount(pv))}</span><span class="spacer"></span>
+      <span class="dim">markdown renderizzato</span></div>
+    <div class="pv-gh-title">${esc(item.title)}</div>
+    ${blocks.map(pvBlock).join("") || `<div class="dim" style="margin-top:8px">corpo vuoto</div>`}
+  </div>`;
+}
+function pvChecks(pv){
+  const v = pv.verify || {findings: [], error_count: 0, warning_count: 0, ok: true};
+  const m = pv.measured || {};
+  const limit = Number(m.limit) || 0;
+  const used = limit ? pct(Number(m.length) || 0, limit) : 0;
+  const kind = v.error_count ? "bad" : (v.warning_count ? "warn" : "");
+  return `<div class="checks">
+    <div class="row" style="font-size:12px"><span class="dim">${esc(pv.body_field)}</span>
+      <span class="mono">${m.length}/${limit}</span>
+      ${pv.platform === "x" && m.effective_length != null
+        ? `<span class="dim">X ne conta ${Number(m.effective_length)}: i link pesano ${Number(m.url_weight)}</span>` : ""}
+      <span class="spacer"></span>
+      ${v.error_count ? badge(v.error_count + " da correggere", "bad") : ""}
+      ${v.warning_count ? badge(v.warning_count + " avvisi", "warn") : ""}
+      ${v.ok && !v.warning_count ? badge("pronto", "ok") : ""}</div>
+    <div class="bar ${kind}"><i style="width:${used}%"></i></div>
+    ${(v.findings || []).map(f => `<div class="chk ${esc(f.severity)}">
+      <span class="chk-field">${esc(f.field)}</span><span>${esc(f.message)}</span></div>`).join("")}
+    ${pv.policy && pv.policy.outcome ? `<div class="chk ${pv.policy.outcome === "block" ? "error"
+      : (pv.policy.outcome === "pass" ? "ok" : "warning")}"><span class="chk-field">policy</span>
+      <span>${esc(pv.policy.outcome)}${(pv.policy.reasons || []).length
+        ? ": " + esc(pv.policy.reasons.join(" · ")) : ""}</span></div>` : ""}
+  </div>`;
+}
+function pvVariant(pv, item){
+  if(!pv) return `<div class="dim">anteprima non disponibile per questa variante</div>`;
+  const body = pv.platform === "instagram" ? pvInstagram(pv)
+    : (pv.platform === "github" ? pvGithub(pv, item) : pvX(pv));
+  return body + pvChecks(pv);
+}
 window.confirmPublish = (variantId, platform) => confirmDialog("Pubblicare davvero?",
   `Invia ora il contenuto su ${platform} tramite l'API della piattaforma. Se la policy richiede un umano, ` +
   "se manca un'approvazione o il kill switch è attivo, la pubblicazione viene bloccata e te lo dice.",

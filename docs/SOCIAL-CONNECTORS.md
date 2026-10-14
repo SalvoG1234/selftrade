@@ -18,6 +18,11 @@ python -m socialmanager token-check     # which variables are set, by name and f
 | X | posts, media, metrics, mentions | disabled, `dry_run: true` | app + user-context token, `connectors.x.enabled: true`, `dry_run: false` |
 | Instagram | images, carousels, Reels, comments, insights | disabled, `dry_run: true` | professional account, App Review, long-lived token, a public HTTPS media base, `dry_run: false` |
 
+The character ceilings below are the platforms', not this project's opinion of them, and there is one
+copy of each: `models.PLATFORM_LIMITS` declares them, `policy.py` refuses a draft that breaks one, and
+the Content Studio measures the draft against the same numbers before it draws the preview and before
+an approval is accepted ([`preview.py`](../socialmanager/preview.py)).
+
 ## GitHub — read-only, by construction
 
 The mission forbids the Social Manager from touching code, merges or issue administration. That is

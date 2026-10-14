@@ -521,6 +521,115 @@ def test_an_edit_that_promises_profit_is_still_caught_by_the_policy(panel):
     assert body["policy"]["reasons"]
 
 
+# --------------------------------------------------------- the format preview
+def test_the_preview_reports_the_format_and_the_verdict_for_every_variant(panel):
+    """One read path that measures the draft and says what would refuse it."""
+    ctx, base = panel
+    item_id, variant_id = seed_item_with_variant(ctx.db)
+    ctx.db.upsert_variant(item_id, "instagram", "en", "A caption for the feed.",
+                          hashtags="#Python")
+    status, body, _ = get(base, f"/api/content/{item_id}/previews")
+    assert status == 200
+    by_platform = {v["platform"]: v for v in body["variants"]}
+    assert by_platform["x"]["measured"]["limit"] == 280
+    assert by_platform["x"]["measured"]["effective_length"] >= 23   # the link weight
+    assert by_platform["instagram"]["measured"]["feed"]["cut_at"] == 125
+    # Instagram refuses a post with no image, so that variant is not ready; the
+    # item is still approvable because the post on X is.
+    assert by_platform["instagram"]["verify"]["ok"] is False
+    assert body["ready"] == [variant_id] and body["blocked"] != []
+    assert body["approvable"] is True and body["blocked_reason"] == ""
+
+
+def test_the_preview_of_an_item_that_is_not_there_is_a_404(panel):
+    _, base = panel
+    status, body, _ = get(base, "/api/content/999/previews")
+    assert status == 404 and "not found" in body["error"]
+
+
+def test_the_approval_is_refused_when_nothing_could_be_published(panel):
+    """Approving is a decision about content that can go out.
+
+    A draft whose only variant cannot be sent is not approvable, the refusal names
+    the field to fix, the item stays in ``draft``, the request stays ``pending``,
+    and the refusal is in the audit rather than being swallowed.
+    """
+    ctx, base = panel
+    item_id, _ = seed_item_with_variant(ctx.db, body="   ")
+    ctx.approvals().ensure_request(item_id, risk="low", reason="mode A")
+
+    status, body, _ = post(base, "/api/approvals",
+                           json_body={"item_id": item_id, "decision": "approved"})
+    assert status == 409 and "correggi i campi indicati" in body["error"]
+    assert ctx.db.item(item_id)["state"] == "draft"
+    assert ctx.db.approval_for("content_item", item_id)["state"] == "pending"
+
+    _, audit, _ = get(base, "/api/audit")
+    assert any(e["action"] == "approval.refused" for e in audit["events"])
+    assert audit["verify"]["ok"] is True
+
+
+def test_the_batch_path_the_queue_uses_is_gated_too(panel):
+    """The queue approves by ``approval_id`` and the batch button loops over that
+    very call, so a gate on ``item_id`` alone would be bypassable from the page."""
+    ctx, base = panel
+    item_id, _ = seed_item_with_variant(ctx.db, body="")
+    ctx.approvals().ensure_request(item_id, risk="low", reason="mode A")
+    approval_id = ctx.db.approval_for("content_item", item_id)["id"]
+    status, body, _ = post(base, "/api/approvals",
+                           json_body={"approval_id": approval_id, "decision": "approved"})
+    assert status == 409
+    assert ctx.db.get("approval", approval_id)["state"] == "pending"
+
+
+def test_a_warning_informs_and_still_lets_the_approval_through(panel):
+    """Only an error refuses.  A short body is under the configured floor, which
+    the policy answers with a review - not with a block, and neither does this."""
+    ctx, base = panel
+    item_id, _ = seed_item_with_variant(ctx.db, body="ciao")
+    ctx.approvals().ensure_request(item_id, risk="low", reason="mode A")
+    _, previews, _ = get(base, f"/api/content/{item_id}/previews")
+    assert previews["error_count"] == 0 and previews["warning_count"] >= 1
+    status, body, _ = post(base, "/api/approvals",
+                           json_body={"item_id": item_id, "decision": "approved"})
+    assert status == 200 and ctx.db.item(item_id)["state"] == "approved"
+
+
+def test_a_live_send_is_refused_for_an_invalid_variant_but_a_simulation_reports_it(panel):
+    """The gate stands in front of the real send only; a dry run carries the
+    findings back instead of being refused, because seeing them is its purpose."""
+    ctx, base = panel
+    _, variant_id = seed_item_with_variant(ctx.db, body="   ")
+
+    status, body, _ = post(base, "/api/actions/publish",
+                           json_body={"variant_id": variant_id, "live": True})
+    assert status == 409 and body["findings"]
+    assert ctx.db.published_posts(limit=10) == []
+
+    status, body, _ = post(base, "/api/actions/publish", json_body={"variant_id": variant_id})
+    assert status == 200 and body["results"]
+    assert body["format"]["ok"] is False
+
+
+def test_a_simulation_of_a_clean_variant_carries_a_clean_report(panel):
+    """The gate must not fire on the ordinary path."""
+    ctx, base = panel
+    _, variant_id = seed_item_with_variant(ctx.db)
+    status, body, _ = post(base, "/api/actions/publish", json_body={"variant_id": variant_id})
+    assert status == 200 and body["results"][0]["state"] == "dry_run"
+    assert body["format"]["ok"] is True and body["format"]["error_count"] == 0
+
+
+def test_the_served_studio_carries_the_preview_it_promises(panel):
+    """The rail's own tooltip promised an anteprima per piattaforma before there
+    was one; this is what keeps the promise wired to a real renderer."""
+    _, base = panel
+    _, html, _ = get(base, "/")
+    assert "function pvVariant" in html
+    assert "function pvChecks" in html
+    assert "/previews" in html
+
+
 # ---------------------------------------------------------------- the kill switch
 def test_the_kill_switch_stops_a_live_publish_and_is_audited(panel):
     ctx, base = panel
