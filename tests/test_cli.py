@@ -90,6 +90,33 @@ def test_verify_ledger_json_is_machine_readable(capsys):
     assert payload["slots"]
 
 
+def test_verify_card_checks_this_checkout(capsys):
+    """The card's own contract: exit 0 when the picture was drawn from this tree's source."""
+    code = main(["verify", "--card"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "the picture was drawn from this source" in out
+
+
+def test_verify_card_json_is_machine_readable(capsys):
+    import json
+
+    assert main(["verify", "--card", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["card"]["record"]["count"] == str(payload["facts"]["total"])
+    assert payload["card"]["size"] == [1280, 640]
+
+
+def test_verify_can_run_both_checks_and_report_both(capsys):
+    import json
+
+    assert main(["verify", "--ledger", "--card", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ledger"]["ok"] is True
+    assert payload["card"]["ok"] is True
+
+
 def test_globals_extracted_from_any_position():
     from selftrade.cli import _extract_globals
 

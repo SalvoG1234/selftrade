@@ -753,34 +753,16 @@ def cmd_risk(args) -> int:
     return 1
 
 
-def cmd_verify(args) -> int:
-    """The verification ledger: the suite count is measured, and the documentation is held to it.
 
-    ``--ledger`` collects the suite (about two seconds, no key, no network, no data file) and then
-    requires that **every** whole-suite count in the documentation equals what it measured, marked
-    or not: the README, `CONTRIBUTING.md`, the ledger, the launch kit and the social card. Exit
-    **0** when they agree, **1** when a number has drifted, **2** when the suite could not be
-    measured at all. ``--write`` records a run instead - it executes the suite and rewrites each
-    marked fragment - and ``--run`` executes it without writing anything.
+def _verify_ledger(args, root: Path) -> tuple[int, dict, str | None]:
+    """The ledger half of ``verify``: measure the suite, and hold every count to the measurement.
 
-    This is deliberately *not* a checker for the research numbers. The holdout Sharpe, the drawdown
-    and the cost drag come out of ``evolve``/``invest``/``stress``, cost minutes to reproduce, and
-    each one already names the command that produces it. What is generated here is the fact that is
-    a pure function of the working tree, which is the one that goes stale without anyone noticing.
+    Returns the exit code, the report for `--json`, and a notice for the caller to print when a run
+    happened that was too red to record: the counts were still repaired, and saying so is the
+    difference between a tool that hides a red suite and one that reports it.
     """
     from . import ledger
 
-    if not getattr(args, "ledger", False):
-        print("verify: nothing to check; use `verify --ledger`", file=sys.stderr)
-        return 2
-    root = Path(__file__).resolve().parent.parent
-    if not (root / "docs" / "VERIFICATION.md").exists():
-        print(
-            f"verify: docs/VERIFICATION.md not found under {root} - this checks a checkout, not "
-            "an installed package",
-            file=sys.stderr,
-        )
-        return 2
     force = bool(getattr(args, "force", False))
     try:
         if getattr(args, "write", False):
@@ -793,28 +775,120 @@ def cmd_verify(args) -> int:
             report = outcome["report"]
             ran = outcome["ran"]
             if ran["exit_code"] != 0 and not force:
-                print(
+                notice = (
                     f"verify: the suite exited {ran['exit_code']} ({ran['failed']} failed), so the "
                     "counts in the documents were updated but the run was not recorded - fix the "
-                    "suite, or pass --force to record the run that happened",
-                    file=sys.stderr,
+                    "suite, or pass --force to record the run that happened"
                 )
-                if not getattr(args, "json", False):
-                    for line in ledger.describe(report):
-                        print(line)
-                return 1
+                return 1, report, notice
         else:
             facts = ledger.measure(root, run=bool(getattr(args, "run", False)))
             report = ledger.check(root, facts)
     except ledger.LedgerError as exc:
         print(f"verify: {exc}", file=sys.stderr)
+        return 2, {}, None
+    return (0 if report["ok"] else 1), report, None
+
+
+def _verify_card(args, root: Path) -> tuple[int, dict]:
+    """The card half of ``verify``: draw it if asked, then hold the file to this tree.
+
+    A machine with no browser is *unmeasurable* (exit 2) rather than *drifted* (exit 1), which is why
+    the browser is resolved before anything is drawn: the two failures mean different things, and a
+    red build that reads like "the card is stale" when the truth is "no Chrome here" is how a check
+    loses its readers.
+    """
+    from . import card as card_checks
+    from . import ledger
+
+    chrome = getattr(args, "chrome", None)
+    render = bool(getattr(args, "render", False))
+    try:
+        facts = ledger.collect(root)
+        if render or getattr(args, "write", False):
+            card_checks.find_chromium(chrome)
+        if getattr(args, "write", False):
+            for line in card_checks.stamp_report(card_checks.write(root, chrome=chrome, facts=facts)):
+                print(line)
+        report = card_checks.check(root, facts=facts, chrome=chrome, render=render)
+    except (card_checks.CardError, ledger.LedgerError) as exc:
+        print(f"verify: {exc}", file=sys.stderr)
+        return 2, {}
+    return (0 if report["ok"] else 1), report
+
+
+def cmd_verify(args) -> int:
+    """Two checks, because a claim a machine can check is the only claim worth making.
+
+    ``--ledger`` collects the suite (about two seconds, no key, no network, no data file) and then
+    requires that **every** whole-suite count in the documentation equals what it measured, marked
+    or not: the README, ``CONTRIBUTING.md``, the ledger, the launch kit and the social card's source.
+    Exit **0** when they agree, **1** when a number has drifted, **2** when the suite could not be
+    measured at all. ``--write`` records a run instead - it executes the suite and rewrites each
+    marked fragment - and ``--run`` executes it without writing anything.
+
+    ``--card`` holds the one copy of that count a reader cannot check: ``docs/img/social-preview.png``
+    is a picture, so ``--write`` could repair the HTML it is drawn from and leave the committed PNG
+    showing an older number, with nothing in the repository noticing. The renderer writes a record
+    into the file itself - the count and the SHA-256 of the source - and this compares that record
+    with the tree: the count against the measured suite, the digest against the source as it is now.
+    No browser is needed to enforce it. ``--card --write`` draws it again, and that mode does need
+    one, named with ``--chrome`` or ``$SELFTRADE_CHROME``; ``--card --render`` draws it in a
+    temporary file and compares, reporting the byte difference without ever basing a pass on it,
+    because rasterisation is not portable between machines or browser releases - and, measured
+    rather than assumed, not reproducible even on one machine with one browser, which is why there
+    is no flag to make that difference fatal.
+
+    This is deliberately *not* a checker for the research numbers. The holdout Sharpe, the drawdown
+    and the cost drag come out of ``evolve``/``invest``/``stress``, cost minutes to reproduce, and
+    each one already names the command that produces it. What is generated here is the fact that is
+    a pure function of the working tree, which is the one that goes stale without anyone noticing.
+    """
+    from . import card as card_checks
+    from . import ledger
+
+    wants_ledger = bool(getattr(args, "ledger", False))
+    wants_card = bool(getattr(args, "card", False))
+    if not (wants_ledger or wants_card):
+        print(
+            "verify: nothing to check; use `verify --ledger` or `verify --card`", file=sys.stderr
+        )
         return 2
-    if getattr(args, "json", False):
-        _print_json(report)
-    else:
-        for line in ledger.describe(report):
-            print(line)
-    return 0 if report["ok"] else 1
+    root = Path(__file__).resolve().parent.parent
+    if not (root / "docs" / "VERIFICATION.md").exists():
+        print(
+            f"verify: docs/VERIFICATION.md not found under {root} - this checks a checkout, not "
+            "an installed package",
+            file=sys.stderr,
+        )
+        return 2
+
+    as_json = bool(getattr(args, "json", False))
+    reports: dict[str, dict] = {}
+    codes: list[int] = []
+
+    if wants_ledger:
+        code, report, notice = _verify_ledger(args, root)
+        codes.append(code)
+        reports["ledger"] = report
+        if notice:
+            print(notice, file=sys.stderr)
+        if code != 2 and not as_json:
+            for line in ledger.describe(report):
+                print(line)
+
+    if wants_card:
+        code, report = _verify_card(args, root)
+        codes.append(code)
+        reports["card"] = report
+        if code != 2 and not as_json:
+            for line in card_checks.describe(report):
+                print(line)
+
+    if as_json:
+        _print_json(reports[next(iter(reports))] if len(reports) == 1 else reports)
+    # Unmeasurable outranks drifted, and one drifted check is not excused by the other agreeing.
+    return max(codes) if codes else 2
 
 
 def cmd_notify(args) -> int:
@@ -1839,6 +1913,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="record a failing run, or a fragment bound to another interpreter",
     )
+    sp.add_argument(
+        "--card",
+        action="store_true",
+        help="hold docs/img/social-preview.png to the source it was drawn from, and to the suite",
+    )
+    sp.add_argument(
+        "--render",
+        action="store_true",
+        help="`--card`: draw the source again, and report how it differs from the committed picture",
+    )
+    sp.add_argument("--chrome", help="`--card --write`/`--render`: the browser to draw with")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_verify)
 

@@ -353,6 +353,47 @@ def test_write_keeps_the_line_endings_it_found(tmp_path):
     assert b"**815 pass, exit 0**" in raw
 
 
+def test_a_count_chip_that_has_drifted_fails_the_check(tmp_path):
+    """The chip half of "every published count is measured": a fragment is written by the tool, so it
+    has to be held by the tool. It was not, and a chip could say anything."""
+    root = repo_tree(
+        tmp_path,
+        {
+            "docs/CARD.html": "<span><!-- generated: suite-count -->809<!-- /generated: suite-count"
+            " --> tests</span>\n"
+        },
+    )
+    report = ledger.check(root, facts())
+    assert not report["ok"]
+    assert any("'suite-count' fragment says 809" in p and "815" in p for p in report["problems"])
+
+
+def test_a_count_chip_that_agrees_is_green(tmp_path):
+    root = repo_tree(
+        tmp_path,
+        {
+            "docs/CARD.html": "<span><!-- generated: suite-count -->815<!-- /generated: suite-count"
+            " --> tests</span>\n"
+        },
+    )
+    assert ledger.check(root, facts())["ok"]
+
+
+def test_a_chip_bound_to_another_interpreter_is_recorded_not_held(tmp_path):
+    """A 3.14 checkout cannot repair a chip a 3.13 run wrote, so it says so instead of failing."""
+    root = repo_tree(
+        tmp_path,
+        {
+            "docs/VERIFICATION.md": "| 3.13 | <!-- generated: suite-py313-count -->809"
+            "<!-- /generated: suite-py313-count --> |\n"
+        },
+    )
+    report = ledger.check(root, facts())
+    assert report["ok"], report["problems"]
+    assert [c["slot"] for c in report["recorded"]] == ["suite-py313-count"]
+    assert report["recorded"][0]["value"] == 809
+
+
 def test_write_can_put_a_bare_count_inside_a_sentence(tmp_path):
     root = repo_tree(
         tmp_path,

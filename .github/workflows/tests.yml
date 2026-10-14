@@ -71,3 +71,46 @@ jobs:
       # and a control that does not bite on a given runner would turn CI red for nothing.
       - name: Soak the session lock
         run: python -m selftrade lock-stress --rounds 10
+
+  # The rest of this workflow holds the *textual* copies of the suite count to the suite. This job
+  # holds the one copy a reader cannot check: `docs/img/social-preview.png` is a picture, so
+  # `verify --ledger --write` can rewrite the HTML it is drawn from and leave the committed PNG
+  # showing an older number, with nothing in the repository noticing. Two steps, because they prove
+  # different things:
+  #
+  #   * `verify --card` reads the record the renderer wrote into the PNG - the count and the SHA-256
+  #     of the source - and fails when either disagrees with this tree. No browser, about two
+  #     seconds, and this is the step that cannot be got around.
+  #   * `verify --card --render` draws the source again with the runner's own `google-chrome` and
+  #     fails when it does not render, does not come out at 1280x640, or does not contain the
+  #     measured count. It is deliberately *not* a byte comparison: font rasterisation differs
+  #     between machines and Chrome releases, so byte equality would go red for reasons that have
+  #     nothing to do with the number, and a check that cannot be satisfied gets deleted rather
+  #     than fixed. There was a `--strict` flag that enforced it; it was removed after the same
+  #     browser drew the same source twice on one machine into files 173 060 bytes apart, which is
+  #     the measurement that says a re-drawing is not reproducible even locally.
+  #
+  # One job, not a matrix step: nothing here depends on the interpreter or the platform, and the
+  # card is drawn once for everybody.
+  card:
+    name: social card (the picture cannot fall behind the number)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: The card records the source in this tree
+        run: python -m selftrade verify --card
+
+      - name: And the source still draws, at the right size, with today's count
+        run: python -m selftrade verify --card --render

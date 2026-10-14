@@ -44,8 +44,20 @@ research experiment whose shipped result is a loss.
 in the tree so the card can be re-rendered instead of re-invented:
 
 ```powershell
-# with any Chromium: open docs/img/social-preview.html at 1280x640 and capture the viewport
+python -m selftrade verify --card --write    # draw it, and record what it was drawn from
+python -m selftrade verify --card            # the check CI runs, and it needs no browser
 ```
+
+`--write` draws the source with the first Chromium it can find (name one with `--chrome` or
+`$SELFTRADE_CHROME`) and writes a record *into the file*: the count, the SHA-256 of the HTML it was drawn
+from, the browser and the date. `verify --card` then compares that record with the tree - the count
+against the measured suite, the digest against the source as it is now - so repairing the documents
+and leaving the picture alone fails the build instead of shipping last week's number on the front
+page. `verify --card --render` draws the source again in CI and requires 1280x640 and today's count
+in the rendered text; it is not a byte comparison, because rasterisation is not portable between
+machines or browser releases - and, measured rather than assumed, not reproducible even on one
+machine with one browser (two drawings of this source differed in 173 060 bytes here), so the byte
+difference is reported and never fails a build.
 
 Upload it under **Settings → General → Social preview**. It carries the test count and the
 platform names — both facts this repository proves — and no performance claim.

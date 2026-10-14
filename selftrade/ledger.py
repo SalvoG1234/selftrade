@@ -15,9 +15,13 @@ written is marked in the document::
     <!-- generated: suite -->**815 pass, exit 0** ...<!-- /generated: suite -->
 
 ``check`` is the guard, and it is cheap enough to run in CI: it collects the suite, then requires
-that **every** whole-suite count anywhere in the documentation equals what it measured, marked or
-not. A count that drifted fails the check wherever it lives - which is the only version of this
-that works, because the row a person forgets is never the row they remember.
+that **every** whole-suite count anywhere in the documentation equals what it measured - marked or
+not, and whether it was written as prose or into a ``-count`` chip. Both halves matter, and the chip
+half did not use to: only :func:`write` ever touches a fragment, so a checker that compared the prose
+and merely required a chip to *carry* a number left the number in the chip - the one that goes on a
+badge, or into the HTML a screenshot is drawn from - free to drift. A count that drifted fails the
+check wherever it lives, marked or bare, prose or chip - which is the only version of this that
+works, because the row a person forgets is never the row they remember.
 
 There is one exception, and it is not a loophole: a count inside a fragment that says *which
 interpreter* produced it (the ledger keeps one run recorded on 3.13 beside the one on 3.14) is a
@@ -309,6 +313,19 @@ class Slot:
         match = _SLOT.match(self.slot)
         return "count" if match and match.group("count") else "full"
 
+    def recorded_elsewhere(self, python: str) -> bool:
+        """Whether this fragment records a run on another interpreter, the way :class:`Claim` does.
+
+        A ``suite-py313`` fragment - or one whose body says "on Python 3.13.14" - is evidence of what
+        ran that day, and only that interpreter's own run may move it. Holding a 3.14 checkout to it
+        is what would make the check unsatisfiable for anyone with one interpreter installed.
+        """
+        series = self.series()
+        if series and series.replace(".", "") != _series_of(python):
+            return True
+        named = _NAMED_PYTHON.search(self.content)
+        return bool(named) and named.group(1) != python
+
     def as_dict(self) -> dict:
         data = asdict(self)
         data["owned"] = self.owned_by_us()
@@ -430,6 +447,12 @@ def count_in(text: str) -> int | None:
     return int(bare.group(1)) if bare else None
 
 
+def _named_python(body: str) -> str | None:
+    """The interpreter a fragment's own text names, if it names one."""
+    named = _NAMED_PYTHON.search(body)
+    return named.group(1) if named else None
+
+
 def _fragment_lines(text: str) -> dict[int, tuple[str, str | None]]:
     """Line number -> (slot, interpreter named) for every line a marked fragment covers."""
     spans: dict[int, tuple[str, str | None]] = {}
@@ -535,11 +558,36 @@ def check(root: Path, facts: SuiteFacts | None = None, *, run: bool = False) -> 
         problems.append(
             f"{claim.file}:{claim.line}: {claim.text!r} but the suite has {facts.total} tests"
         )
+    held_lines = {(claim.file, claim.line) for claim in recorded}
     for slot in found_slots:
-        if slot.owned_by_us() and slot.count is None:
+        if not slot.owned_by_us():
+            continue
+        if slot.count is None:
             problems.append(
                 f"{slot.file}:{slot.line}: the {slot.slot!r} fragment carries no count, so the "
                 "check cannot compare anything against it"
+            )
+        elif slot.count == facts.total:
+            continue
+        elif slot.recorded_elsewhere(facts.python):
+            # Reported when nothing on that line already is: a fragment whose value is a record of
+            # another interpreter's run must never be silently held, and must never be silent.
+            if (slot.file, slot.line) not in held_lines:
+                recorded.append(
+                    Claim(
+                        file=slot.file,
+                        line=slot.line,
+                        text=" ".join(slot.content.split()),
+                        value=slot.count,
+                        marked=True,
+                        slot=slot.slot,
+                        interpreter=slot.series() or _named_python(slot.content),
+                    )
+                )
+        else:
+            problems.append(
+                f"{slot.file}:{slot.line}: the {slot.slot!r} fragment says {slot.count}, but the "
+                f"suite has {facts.total}"
             )
     return {
         "ok": not problems,

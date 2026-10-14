@@ -204,7 +204,7 @@ browser default, the content is one *Salta al contenuto* skip-link away, the cur
 ## Tests: what was actually run
 
 The social manager's own suite is **235 cases in 11 modules**, all passing, and it runs inside the
-repository's suite (1091 tests in 46 modules) — the number the documentation ledger measures and CI
+repository's suite (1133 tests in 47 modules) — the number the documentation ledger measures and CI
 enforces:
 
 | Module | Tests | What it pins down |
@@ -223,7 +223,7 @@ enforces:
 
 ```text
 python -m pytest tests/test_social_*.py -q      # the social manager's own 235 cases: green
-python -m pytest -q                            # 1091 passed (the whole repository)
+python -m pytest -q                            # 1133 passed (the whole repository)
 python -m selftrade verify --ledger            # every count in the docs equals the measurement
 ```
 
