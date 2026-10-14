@@ -58,6 +58,14 @@ is the git history itself; this file is the short version.
 
 ### Fixed
 
+- **The social card's record depended on the checkout it was read in** — the record embeds the
+  SHA-256 of the source it was drawn from, and it was computed over the bytes on disk. With
+  `core.autocrlf=true` (the default on Windows) a working tree holds CRLF while the repository
+  stores LF, so the picture said "drawn from this source" here and "the source changed after the
+  card was drawn" on every runner that did not: the first push of a card drawn on Windows went red
+  on all three ubuntu jobs while the Windows ones stayed green. `card.digest_of` normalises line
+  endings, so the digest is a property of the source rather than of the platform it is read on, and
+  a test pins that a CRLF and an LF copy of the same source hash the same. *(this change)*
 - **An operator stop could be lost to a Windows lock race** — the stop is now created under the
   same lock the writers take (`5ae99ce`).
 - **The LAN bind is closed while the bootstrap password `0000` is in force**, and a credential

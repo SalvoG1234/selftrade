@@ -226,7 +226,20 @@ def stamp(data: bytes, record: str) -> bytes:
 
 
 def digest_of(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """The SHA-256 of the source, with line endings normalised.
+
+    A checkout is not the file. With ``core.autocrlf=true`` - the default on Windows - the working
+    tree holds CRLF while the repository stores LF, and hashing the bytes on disk made the record
+    mean "drawn from this source" on the machine that drew the card and "the source changed after
+    the card was drawn" on every runner that did not. It was measured rather than reasoned about:
+    the first push of a card drawn here went red on all three ubuntu jobs while the Windows ones
+    stayed green, because the check was answering a question about the checkout.
+
+    Both sites - the record the renderer writes and the check that reads it - come through here, so
+    they cannot disagree about what the source was. The file on disk is never rewritten: only what
+    is hashed is normalised.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 # --------------------------------------------------------------------------

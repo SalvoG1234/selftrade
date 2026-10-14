@@ -427,7 +427,7 @@ full ledger — every command with its actual output, including the unflattering
 
 | Check | Result |
 | --- | --- |
-| `python -m pytest` | <!-- generated: suite -->**1164 pass, exit 0** - 0 failed / 0 errors / 6 skipped, 48 test modules, 268 s, on Python 3.14.5<!-- /generated: suite --> |
+| `python -m pytest` | <!-- generated: suite -->**1165 pass, exit 0** - 0 failed / 0 errors / 6 skipped, 48 test modules, 282 s, on Python 3.14.5<!-- /generated: suite --> |
 | `evolve --generations 12 --no-llm` on 18 000 real bars | fold-mean Sharpe 0.886, then the holdout **rejected the champion** (Sharpe −0.55) |
 | `critic --champion` | **Refused** (exit 1): *"28.4% drawdown breaks the sealed 15.0% limit … I will not deploy it."* |
 | `risk verify` | exit 0, sealed digest pinned; no config key, genome or environment variable moves the caps |

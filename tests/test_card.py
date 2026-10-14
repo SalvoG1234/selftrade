@@ -268,6 +268,32 @@ def test_a_card_drawn_from_an_older_source_is_stale(made):
     assert any("drawn from a different" in p for p in report["problems"])
 
 
+def test_the_checkout_a_source_is_on_cannot_change_its_digest(tmp_path):
+    """The record has to be a property of the source, not of the platform it was read on.
+
+    ``core.autocrlf=true`` is the default on Windows, so a working tree holds CRLF while the
+    repository stores LF. Hashing the bytes on disk made the check pass on the machine that drew
+    the card and fail on every runner that did not - measured, the first push of a card drawn
+    here went red on all three ubuntu jobs while the Windows ones stayed green - which is the one
+    thing a digest of a file in a repository must not depend on. ``digest_of`` normalises line
+    endings, and a real change to the source still moves it.
+    """
+    source = "<p>815 tests</p>\n<p>and a second line</p>\n"
+    (tmp_path / "docs" / "img").mkdir(parents=True, exist_ok=True)
+    unix = tmp_path / card.SOURCE
+    unix.write_bytes(source.encode("utf-8"))
+    windows = tmp_path / "windows.html"
+    windows.write_bytes(source.replace("\n", "\r\n").encode("utf-8"))
+
+    assert unix.read_bytes() != windows.read_bytes()
+    assert card.digest_of(unix) == card.digest_of(windows)
+
+    windows.write_bytes(
+        source.replace("second", "third").replace("\n", "\r\n").encode("utf-8")
+    )
+    assert card.digest_of(unix) != card.digest_of(windows)
+
+
 def test_a_card_without_a_record_is_stale(made):
     root = made(stamped=False)
     report = card.check(root, facts=facts(815))
