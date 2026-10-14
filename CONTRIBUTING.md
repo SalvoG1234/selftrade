@@ -29,7 +29,7 @@ Two commands print what the program actually sees and make a report much easier 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1     # .venv + requirements
 .\run.ps1 doctor                                        # what the program can see
-python -m pytest -q                                      # the suite (<!-- generated: suite-count -->856<!-- /generated: suite-count --> tests at this commit)
+python -m pytest -q                                      # the suite (<!-- generated: suite-count -->832<!-- /generated: suite-count --> tests at this commit)
 ```
 
 Python **3.11+** (64-bit). Windows 11 is the target; Ubuntu is what CI also covers. No API key

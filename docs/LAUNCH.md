@@ -56,7 +56,7 @@ hostile reply; a round number does not.
 | The critic refuses the champion | *"28.4% drawdown breaks the sealed 15.0% limit; the worst day lost 4.03%, past the sealed 2.0% daily halt. I will not deploy it."* | `python -m selftrade critic --champion` |
 | The risk layer is sealed, and that is testable | pinned SHA-256 over the caps, unreachable by config, environment, genome or LLM, plus a file-backed kill switch that stops paper and exchange orders alike | `python -m selftrade risk verify`, `docs/EXECUTION-AND-RISK-GATE.md` |
 | The lock survives contention, and the tool can prove its own test bit | `lock-stress`: 968 writes, 365 create races injected, **0 stops overwritten**; `--compare` shows the shipped lock **clean** against a deliberately pre-fix reading that **loses 2 stops** | `python -m selftrade lock-stress`, `docs/SESSION-LOCK.md` |
-| It is tested on two platforms | **<!-- generated: suite-count -->856<!-- /generated: suite-count --> tests** pass locally (Python 3.14, Windows 11) and in CI on Windows *and* Ubuntu | `python -m pytest` |
+| It is tested on two platforms | **<!-- generated: suite-count -->832<!-- /generated: suite-count --> tests** pass locally (Python 3.14, Windows 11) and in CI on Windows *and* Ubuntu | `python -m pytest` |
 
 **Never claim**:
 
@@ -160,7 +160,7 @@ Engineering bits that might interest this subreddit specifically:
   parameter can widen, plus a kill switch that stops paper and exchange orders alike;
 - a session lock stress tool that injects create races and reports 0 stops overwritten over 968
   writes, and which refuses to call a run clean when its own injection never bit;
-- <!-- generated: suite-count -->856<!-- /generated: suite-count --> tests, run in CI on Windows and Ubuntu.
+- <!-- generated: suite-count -->832<!-- /generated: suite-count --> tests, run in CI on Windows and Ubuntu.
 
 I am looking for criticism, especially: where the reporting is self-serving, what the backtest
 is still pretending not to know, and where the code is over-engineered.
@@ -207,7 +207,7 @@ parameters. A kill switch stops paper and real orders alike.
 ```
 
 ```
-5/ No API keys needed to try it, nothing trades real money by default, <!-- generated: suite-count -->856<!-- /generated: suite-count --> tests on Windows and
+5/ No API keys needed to try it, nothing trades real money by default, <!-- generated: suite-count -->832<!-- /generated: suite-count --> tests on Windows and
 Ubuntu.
 
 I want the criticism more than the stars: tell me where the README over-claims or where you can
@@ -269,7 +269,7 @@ Rules of engagement:
 ## 6. Before you press publish
 
 ```powershell
-python -m pytest -q                                # <!-- generated: suite-count -->856<!-- /generated: suite-count --> pass, exit 0
+python -m pytest -q                                # <!-- generated: suite-count -->832<!-- /generated: suite-count --> pass, exit 0
 python -m selftrade backtest --champion --holdout  # fold mean, benchmark, excess, holdout
 python -m selftrade critic --champion              # the refusal, exit 1 - quote it exactly
 python -m selftrade risk verify                    # the seal checks
