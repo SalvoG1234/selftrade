@@ -1,6 +1,6 @@
 # Documentation
 
-Twenty-two documents, grouped by **what you are trying to do** rather than by when they were
+Twenty-five documents, grouped by **what you are trying to do** rather than by when they were
 written. The front page ([`../README.md`](../README.md)) keeps the honest results, the safety
 story and the summary of what has been verified; this directory is the detail behind it.
 
@@ -46,6 +46,20 @@ and "is the number real?".
 | [`TRADING-COM-MT5.md`](TRADING-COM-MT5.md) | the Windows-only MetaTrader 5 bridge, demo accounts only |
 | [`REA-INTEGRATION.md`](REA-INTEGRATION.md) | the optional reverse-engineering evidence tooling |
 | [`RUFLO-SWARM.md`](RUFLO-SWARM.md) | the optional MCP wiring that exposes the same evidence to an agent swarm |
+
+## The Social Manager
+
+A second program in this repository (`socialmanager/`, 235 of the suite's tests) that promotes the
+project on GitHub, X and Instagram in Italian and English, under a deterministic gate. It cannot
+order, commit or publish without passing that gate.
+
+| Document | What it is for |
+| --- | --- |
+| [`SOCIAL-MANAGER.md`](SOCIAL-MANAGER.md) | the components, the 13 policy checks, the three autonomy levels, the seven cases that always need a human, and the test report |
+| [`SOCIAL-CONNECTORS.md`](SOCIAL-CONNECTORS.md) | per-platform setup, permissions and scopes, published limits and prices, and what has *not* been verified against a live account |
+| [`SOCIAL-DEPLOY.md`](SOCIAL-DEPLOY.md) | the local and cloud halves: the container, the scheduler, the database, backups, health checks and the credentials you must provide |
+| [`social-samples/drafts.md`](social-samples/drafts.md) | the bilingual drafts it produced, clearly marked as drafts, each with its sources |
+| [`social-samples/calendar-initial.json`](social-samples/calendar-initial.json) | the initial editorial calendar it proposes |
 
 ## Research and reporting
 

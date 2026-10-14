@@ -48,6 +48,7 @@ cycle that produced it. Everything on that screen comes from the database in `st
 | **[What it does](#what-it-does)** · [Commands](#commands) · [Layout](#layout) · [Configuration](#configuration) | the program, the CLI and the files |
 | **[Safety and secrets](#safety-and-secrets)** | what cannot happen, and how to check it yourself |
 | **[Verification status](#verification-status)** | what was run, what was not, and the full ledger |
+| **[The Social Manager](#the-social-manager)** | the second program in this repository: it promotes the project, under a gate |
 | **[Documentation](#documentation)** | the docs, grouped by what you are trying to do |
 | **[Contributing, security and support](#contributing-security-and-support)** | how to argue with this project, and where |
 
@@ -319,15 +320,18 @@ and returns a non-zero exit code on refusal or error. Destructive commands
 ```
 config.yaml              all settings (typed + validated)
 selftrade/               the package (see docs/ARCHITECTURE.md for the module map)
+socialmanager/           the social manager (docs/SOCIAL-MANAGER.md); its own config is social.yaml
 tests/                   one module per source module; stubs for Ollama/REA/MT5
+                         tests/test_social_*.py for the social manager, tests/fake_social.py the stubs
 docs/                    WINDOWS-SETUP, ARCHITECTURE, PAPER-TRADING, CAPITAL, DASHBOARD,
                          NOTIFICATIONS, INVESTMENT-SIM, AUTOPSY-AND-CRITIC, STRESS,
                          SESSION-LOCK, EXECUTION-AND-RISK-GATE, BINANCE-TESTNET,
                          LOOP-AI-PLAN, EXTENDING, REA-INTEGRATION, RUFLO-SWARM,
-                         TRADING-COM-MT5
+                         TRADING-COM-MT5, SOCIAL-MANAGER, SOCIAL-CONNECTORS, SOCIAL-DEPLOY
 data/ state/ reports/    git-ignored runtime data
 user_data/strategies/    exported freqtrade strategies
 setup.ps1 run.ps1 paper.ps1 control.ps1 dashboard.ps1 mt5.ps1
+Dockerfile docker-compose.yml .env.example        the social manager's cloud half (docs/SOCIAL-DEPLOY.md)
 ```
 
 ## Configuration
@@ -422,7 +426,7 @@ full ledger — every command with its actual output, including the unflattering
 
 | Check | Result |
 | --- | --- |
-| `python -m pytest` | <!-- generated: suite -->**832 pass, exit 0** - 0 failed / 0 errors / 0 skipped, 34 test modules, 246 s, on Python 3.14.5<!-- /generated: suite --> |
+| `python -m pytest` | <!-- generated: suite -->**1091 pass, exit 0** - 0 failed / 0 errors / 3 skipped, 46 test modules, 292 s, on Python 3.14.5<!-- /generated: suite --> |
 | `evolve --generations 12 --no-llm` on 18 000 real bars | fold-mean Sharpe 0.886, then the holdout **rejected the champion** (Sharpe −0.55) |
 | `critic --champion` | **Refused** (exit 1): *"28.4% drawdown breaks the sealed 15.0% limit … I will not deploy it."* |
 | `risk verify` | exit 0, sealed digest pinned; no config key, genome or environment variable moves the caps |
@@ -522,6 +526,42 @@ the front page: what has **not** been proven, and what the program cannot do.
   that exceeds `llm.timeout` returns `None` and the run falls back to
   deterministic mutation (the report records the origin mix, so this is visible).
 
+## The Social Manager
+
+This repository also contains the program that promotes it: `socialmanager/`, a modular Python
+system that reads the repository with the GitHub API, writes bilingual (IT/EN) drafts for GitHub, X
+and Instagram, queues them in an editorial calendar, and publishes them **only** through a
+deterministic gate. It is a separate program: it does not import the trading code, cannot place an
+order, and cannot commit, comment on an issue or merge anything.
+
+```powershell
+python -m socialmanager init      # database + social.yaml (draft mode, connectors off)
+python -m socialmanager doctor    # what is configured, what is missing, and why
+python -m socialmanager sync      # read the repository (read-only)
+python -m socialmanager produce   # write the bilingual drafts
+python -m socialmanager serve     # the admin dashboard on http://127.0.0.1:8788
+```
+
+The defaults are the conservative ones: **draft mode** (nothing is published), every connector off,
+replies and issue proposals off, the kill switch one command away, and no credential ever read
+from — or written to — the repository. Publishing needs a connector enabled, a token you set, the
+13 policy checks to pass, and a human approval for the seven cases that always need one (security,
+controversy, financial claims, commitments, permissions, destructive actions, and any change to the
+system's own autonomy limits).
+
+**No live X or Instagram call has been made from this repository.** The connectors are written
+against the current endpoints and covered by mocks, and they report `ready: false` and stay in
+simulation until you configure them; the GitHub connector is the one that has run for real
+(read-only, anonymously). The system never invents a metric, a star or a follower, and it never
+presents a planned feature as shipped — the drafts in
+[`docs/social-samples/`](docs/social-samples/drafts.md) carry their sources for exactly that reason.
+
+Read [`docs/SOCIAL-MANAGER.md`](docs/SOCIAL-MANAGER.md) for the components, the policy checks and
+the test report; [`docs/SOCIAL-CONNECTORS.md`](docs/SOCIAL-CONNECTORS.md) for per-platform
+permissions, limits and prices; [`docs/SOCIAL-DEPLOY.md`](docs/SOCIAL-DEPLOY.md) for the hybrid
+deployment (Docker, the always-on worker, the scheduled GitHub Action, backups and health checks)
+and the list of credentials you must provide yourself.
+
 ## Documentation
 
 `docs/` is grouped by **what you are trying to do**, not by file age.
@@ -538,6 +578,7 @@ the front page: what has **not** been proven, and what the program cannot do.
 | reach a real exchange or broker | [`docs/BINANCE-TESTNET.md`](docs/BINANCE-TESTNET.md) · [`docs/TRADING-COM-MT5.md`](docs/TRADING-COM-MT5.md) |
 | route the risk alerts somewhere | [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) |
 | add a strategy, a rail or a page | [`docs/EXTENDING.md`](docs/EXTENDING.md) |
+| promote the project, and check what it will say | [`docs/SOCIAL-MANAGER.md`](docs/SOCIAL-MANAGER.md) · [`docs/SOCIAL-CONNECTORS.md`](docs/SOCIAL-CONNECTORS.md) · [`docs/SOCIAL-DEPLOY.md`](docs/SOCIAL-DEPLOY.md) |
 | see where this is going | [`docs/ROADMAP.md`](docs/ROADMAP.md) · [`docs/LAUNCH.md`](docs/LAUNCH.md) |
 
 ## Contributing, security and support
