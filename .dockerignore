@@ -1,0 +1,47 @@
+# The build context is the repository root, but the image only needs the package.
+# Excluding the rest keeps the context small and guarantees the trading side can
+# never end up in the social worker's image by accident.
+
+# version control and agent metadata
+.git/
+.github/
+.freebuff/
+.claude/
+.idea/
+.vscode/
+
+# runtime state: the database, the audit log, generated media and backups belong to
+# the host, not to the image, and they are mounted as a volume at run time
+state/
+reports/
+reports_synthetic/
+data/
+user_data/
+
+# the trading runtime and its tests, deliberately absent from this image
+selftrade/
+tests/
+conftest.py
+pytest.ini
+*.ps1
+
+# local environments, caches and secrets
+.venv/
+.tmp-py313/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+*.env
+.secrets
+
+# documentation and packaging metadata the container never reads
+docs/
+*.md
+LICENSE
+.mcp.json
+Dockerfile
+docker-compose.yml
+.dockerignore

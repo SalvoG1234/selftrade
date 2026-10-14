@@ -1,0 +1,148 @@
+name: social-worker
+
+# The serverless half of the hybrid deployment: read the repository, write bilingual
+# drafts, refresh the calendar and the reports, and archive them - on a runner, with
+# the operator's PC off.
+#
+# Three deliberate restrictions, because a scheduled job that can post to a public
+# account is a footgun rather than a feature:
+#
+#   1. It is **inert until the operator switches it on**.  Every scheduled run exits
+#      immediately unless the repository variable SOCIAL_CLOUD_ENABLED is set to
+#      `true` (Settings -> Secrets and variables -> Actions -> Variables).  A manual
+#      run from the Actions tab always works, so the workflow can be tried first.
+#   2. **A scheduled run never publishes.**  It ticks in simulation: real publishing
+#      needs `workflow_dispatch` with live=true, which is a human pressing a button.
+#      The always-on worker (docker-compose.yml) is the component that publishes
+#      unattended, and only in controlled/advanced mode.
+#   3. **The autonomy level starts at draft.**  It is read from the SOCIAL_MODE
+#      variable, and a scheduled run with that variable unset produces drafts only.
+#
+# State: the runner is ephemeral, so the SQLite database, the audit log and the
+# generated media travel through the Actions cache.  That cache is best-effort (it
+# can be evicted, and CI is not a database), which is why the always-on worker is the
+# recommended cloud half for a deployment that must never lose its audit chain.  The
+# reports are uploaded as artifacts on every run either way.
+on:
+  schedule:
+    - cron: "23 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Tick with --live (really publish to the accounts configured)"
+        type: boolean
+        default: false
+      mode:
+        description: "Autonomy level for this run"
+        type: choice
+        options: [draft, controlled, advanced]
+        default: draft
+
+# Two runs must not write the same database: a second one would fight the cache and
+# the lease table.  A queued run replaces the pending one.
+concurrency:
+  group: social-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  worker:
+    name: sync, draft, plan, simulate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || vars.SOCIAL_CLOUD_ENABLED == 'true'
+    env:
+      SOCIAL_OVERRIDES: autonomy.mode=${{ github.event.inputs.mode || vars.SOCIAL_MODE || 'draft' }}
+      SOCIAL_GITHUB_TOKEN: ${{ secrets.SOCIAL_GITHUB_TOKEN }}
+      SOCIAL_X_CLIENT_ID: ${{ secrets.SOCIAL_X_CLIENT_ID }}
+      SOCIAL_X_CLIENT_SECRET: ${{ secrets.SOCIAL_X_CLIENT_SECRET }}
+      SOCIAL_X_ACCESS_TOKEN: ${{ secrets.SOCIAL_X_ACCESS_TOKEN }}
+      SOCIAL_X_REFRESH_TOKEN: ${{ secrets.SOCIAL_X_REFRESH_TOKEN }}
+      SOCIAL_IG_ACCESS_TOKEN: ${{ secrets.SOCIAL_IG_ACCESS_TOKEN }}
+      SOCIAL_IG_APP_SECRET: ${{ secrets.SOCIAL_IG_APP_SECRET }}
+      SOCIAL_LLM_REMOTE_API_KEY: ${{ secrets.SOCIAL_LLM_REMOTE_API_KEY }}
+      SOCIAL_TELEGRAM_TOKEN: ${{ secrets.SOCIAL_TELEGRAM_TOKEN }}
+      SOCIAL_TELEGRAM_CHAT_ID: ${{ secrets.SOCIAL_TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # The two libraries the social manager imports; requirements.txt belongs to the
+      # trading runtime and pulls numpy and pandas, which are ~200 MB the worker never uses.
+      - name: Install the runtime dependencies
+        run: python -m pip install "requests>=2.31,<3" "PyYAML>=6,<7"
+
+      # Rolling restores: the newest cache from a previous run, or nothing on a cold
+      # start (``init`` then creates the database, and ``sync`` refills it from GitHub).
+      - name: Restore the state directory
+        uses: actions/cache@v4
+        with:
+          path: state
+          key: social-state-${{ github.run_id }}
+          restore-keys: social-state-
+
+      - name: Create the database and record the accounts
+        run: python -m socialmanager init
+
+      - name: Check what is configured (names only, never values)
+        run: python -m socialmanager token-check
+
+      # Read-only against GitHub: no commit, issue, discussion or release is touched.
+      - name: Read the repository
+        run: python -m socialmanager sync
+
+      - name: Write bilingual drafts
+        run: python -m socialmanager produce --limit 6
+
+      - name: Refresh the editorial calendar
+        run: python -m socialmanager plan --schedule
+
+      # Simulation unless a human dispatched this run with live=true.  Even then the
+      # policy engine, the approval queue, the duplicate check and the kill switch are
+      # inside the orchestrator and can still refuse.
+      - name: Simulated tick
+        if: ${{ github.event.inputs.live != 'true' }}
+        run: python -m socialmanager tick --limit 5 --worker actions
+
+      - name: Live tick (manual dispatch only)
+        if: ${{ github.event.inputs.live == 'true' }}
+        run: python -m socialmanager tick --limit 5 --worker actions --live
+
+      - name: Classify the feedback and report
+        run: python -m socialmanager feedback
+
+      - name: Collect the metrics that the APIs actually return
+        run: python -m socialmanager analytics --days 30
+
+      - name: Export the drafts, the calendar and the analytics
+        run: |
+          python -m socialmanager export --out reports/social
+          python -m socialmanager analytics --days 30 --no-collect --export json \
+            --out reports/social-analytics-30d.json
+
+      - name: A consistent copy of the database
+        run: python -m socialmanager backup
+
+      - name: Verify the audit chain
+        run: python -m socialmanager audit --verify
+
+      - name: What the run produced
+        if: always()
+        run: python -m socialmanager status
+
+      # Drafts and reports only: the database stays in the cache rather than in an
+      # artifact, because it is the audit trail and an artifact is not a backup.
+      - name: Upload the drafts, the calendar and the reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: social-reports-${{ github.run_number }}
+          path: |
+            reports/social
+            reports/social-analytics-30d.json
+          if-no-files-found: warn
+          retention-days: 30

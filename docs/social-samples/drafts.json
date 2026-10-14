@@ -1,0 +1,707 @@
+[
+  {
+    "item": {
+      "id": 2,
+      "title": "Spiegazione tecnica: Architecture",
+      "category": "tech_explainer",
+      "summary": "Dal documento docs/ARCHITECTURE.md del repository.",
+      "risk": "medium",
+      "state": "scheduled",
+      "facts": [
+        {
+          "claim": "Il documento docs/ARCHITECTURE.md e' pubblicato nel repository",
+          "excerpt": "# architecture `selftrade` searches for trading strategies, evaluates them honestly, and remembers what happened — good *and* bad. it never trades real money by default. ## module map | module | responsibility | | --- | --- | | `config.py` | typed, validated settings. unknown",
+          "kind": "docs",
+          "source_url": "docs/ARCHITECTURE.md",
+          "verified": true
+        }
+      ],
+      "source_refs": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "planned_for": null,
+      "origin": "agent",
+      "notes": "",
+      "created_at": "2026-10-13T14:44:23Z",
+      "updated_at": "2026-10-13T14:44:24Z",
+      "approval": {
+        "id": 2,
+        "subject_type": "content_item",
+        "subject_id": 2,
+        "risk": "medium",
+        "reason": "autonomy mode A (draft): a human publishes",
+        "state": "pending",
+        "requested_by": "agent",
+        "requested_at": "2026-10-13T14:44:23Z",
+        "decided_by": null,
+        "decided_at": null,
+        "decision_note": ""
+      }
+    },
+    "slots": [
+      {
+        "platform": "instagram",
+        "run_at": "2026-10-14T10:30:00Z",
+        "state": "pending"
+      },
+      {
+        "platform": "instagram",
+        "run_at": "2026-10-15T10:30:00Z",
+        "state": "pending"
+      }
+    ],
+    "variants": [
+      {
+        "id": 6,
+        "item_id": 2,
+        "platform": "instagram",
+        "lang": "en",
+        "body": "How Architecture works.\n\nFrom the repository's own docs/ARCHITECTURE.md - the section headings below are the document's own.\n- Architecture\n- Module map\n- The data contract\n- The genome\n\nDocs: https://github.com/SalvoG1234/selftrade",
+        "hashtags": "#QuantTrading #Backtesting #Python",
+        "media": [],
+        "alt_text": "SelfTrade: Spiegazione tecnica: Architecture",
+        "char_count": 232,
+        "generator": "template",
+        "risk": "medium",
+        "policy_state": "pass",
+        "policy_report": {
+          "action": "draft",
+          "checks": [
+            {
+              "check": "kill_switch",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_authorised",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "account_ready",
+              "detail": "draft only: no credential is needed",
+              "outcome": "pass"
+            },
+            {
+              "check": "autonomy_mode",
+              "detail": "mode draft allows drafting",
+              "outcome": "pass"
+            },
+            {
+              "check": "approval",
+              "detail": "approval not mandatory (none)",
+              "outcome": "pass"
+            },
+            {
+              "check": "facts_and_sources",
+              "detail": "1 fact(s) with sources",
+              "outcome": "pass"
+            },
+            {
+              "check": "format_and_length",
+              "detail": "232 characters",
+              "outcome": "pass"
+            },
+            {
+              "check": "no_secrets_or_pii",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "financial_language",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_rules",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "duplicate",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "frequency",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "language_declared",
+              "detail": "",
+              "outcome": "pass"
+            }
+          ],
+          "evaluated_at": "2026-10-13T14:44:23Z",
+          "outcome": "pass",
+          "platform": "instagram",
+          "reasons": [],
+          "variant_id": 6
+        },
+        "content_hash": "314c1f95dd2162599d19f7ce885cb49548627dedcaa7a79590990b0764897a64",
+        "created_at": "2026-10-13T14:44:23Z",
+        "updated_at": "2026-10-13T14:44:23Z"
+      },
+      {
+        "id": 5,
+        "item_id": 2,
+        "platform": "instagram",
+        "lang": "it",
+        "body": "Come funziona Architecture.\n\nDal documento docs/ARCHITECTURE.md del repository.\n- Architecture\n- Module map\n- The data contract\n- The genome\n\nDocumentazione: https://github.com/SalvoG1234/selftrade",
+        "hashtags": "#QuantTrading #Backtesting #Python",
+        "media": [],
+        "alt_text": "SelfTrade: Spiegazione tecnica: Architecture",
+        "char_count": 197,
+        "generator": "template",
+        "risk": "medium",
+        "policy_state": "pass",
+        "policy_report": {
+          "action": "draft",
+          "checks": [
+            {
+              "check": "kill_switch",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_authorised",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "account_ready",
+              "detail": "draft only: no credential is needed",
+              "outcome": "pass"
+            },
+            {
+              "check": "autonomy_mode",
+              "detail": "mode draft allows drafting",
+              "outcome": "pass"
+            },
+            {
+              "check": "approval",
+              "detail": "approval not mandatory (none)",
+              "outcome": "pass"
+            },
+            {
+              "check": "facts_and_sources",
+              "detail": "1 fact(s) with sources",
+              "outcome": "pass"
+            },
+            {
+              "check": "format_and_length",
+              "detail": "197 characters",
+              "outcome": "pass"
+            },
+            {
+              "check": "no_secrets_or_pii",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "financial_language",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_rules",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "duplicate",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "frequency",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "language_declared",
+              "detail": "",
+              "outcome": "pass"
+            }
+          ],
+          "evaluated_at": "2026-10-13T14:44:23Z",
+          "outcome": "pass",
+          "platform": "instagram",
+          "reasons": [],
+          "variant_id": 5
+        },
+        "content_hash": "84dc6563b73895e3629ea41feecf35963c74dc9fa4ff00275967ec2a4a242dd5",
+        "created_at": "2026-10-13T14:44:23Z",
+        "updated_at": "2026-10-13T14:44:23Z"
+      },
+      {
+        "id": 4,
+        "item_id": 2,
+        "platform": "x",
+        "lang": "en",
+        "body": "How Architecture works.\n\nFrom the repository's own docs/ARCHITECTURE.md - the section headings below are the document's own.\n- Architecture\n- Module map\n- The data contract\n- The genome\n\nDocs: https://github.com/SalvoG1234/selftrade",
+        "hashtags": "#QuantTrading #Backtesting #Python",
+        "media": [],
+        "alt_text": "SelfTrade: Spiegazione tecnica: Architecture",
+        "char_count": 232,
+        "generator": "template",
+        "risk": "medium",
+        "policy_state": "pass",
+        "policy_report": {
+          "action": "draft",
+          "checks": [
+            {
+              "check": "kill_switch",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_authorised",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "account_ready",
+              "detail": "draft only: no credential is needed",
+              "outcome": "pass"
+            },
+            {
+              "check": "autonomy_mode",
+              "detail": "mode draft allows drafting",
+              "outcome": "pass"
+            },
+            {
+              "check": "approval",
+              "detail": "approval not mandatory (none)",
+              "outcome": "pass"
+            },
+            {
+              "check": "facts_and_sources",
+              "detail": "1 fact(s) with sources",
+              "outcome": "pass"
+            },
+            {
+              "check": "format_and_length",
+              "detail": "232 characters",
+              "outcome": "pass"
+            },
+            {
+              "check": "no_secrets_or_pii",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "financial_language",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_rules",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "duplicate",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "frequency",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "language_declared",
+              "detail": "",
+              "outcome": "pass"
+            }
+          ],
+          "evaluated_at": "2026-10-13T14:44:23Z",
+          "outcome": "pass",
+          "platform": "x",
+          "reasons": [],
+          "variant_id": 4
+        },
+        "content_hash": "821824dd5f3e575a3d636f1e651803b3130943ec651bf5fcd11efd02b7f1903f",
+        "created_at": "2026-10-13T14:44:23Z",
+        "updated_at": "2026-10-13T14:44:23Z"
+      },
+      {
+        "id": 3,
+        "item_id": 2,
+        "platform": "x",
+        "lang": "it",
+        "body": "Come funziona Architecture.\n\nDal documento docs/ARCHITECTURE.md del repository.\n- Architecture\n- Module map\n- The data contract\n- The genome\n\nDocumentazione: https://github.com/SalvoG1234/selftrade",
+        "hashtags": "#QuantTrading #Backtesting #Python",
+        "media": [],
+        "alt_text": "SelfTrade: Spiegazione tecnica: Architecture",
+        "char_count": 197,
+        "generator": "template",
+        "risk": "medium",
+        "policy_state": "pass",
+        "policy_report": {
+          "action": "draft",
+          "checks": [
+            {
+              "check": "kill_switch",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_authorised",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "account_ready",
+              "detail": "draft only: no credential is needed",
+              "outcome": "pass"
+            },
+            {
+              "check": "autonomy_mode",
+              "detail": "mode draft allows drafting",
+              "outcome": "pass"
+            },
+            {
+              "check": "approval",
+              "detail": "approval not mandatory (none)",
+              "outcome": "pass"
+            },
+            {
+              "check": "facts_and_sources",
+              "detail": "1 fact(s) with sources",
+              "outcome": "pass"
+            },
+            {
+              "check": "format_and_length",
+              "detail": "197 characters",
+              "outcome": "pass"
+            },
+            {
+              "check": "no_secrets_or_pii",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "financial_language",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_rules",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "duplicate",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "frequency",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "language_declared",
+              "detail": "",
+              "outcome": "pass"
+            }
+          ],
+          "evaluated_at": "2026-10-13T14:44:23Z",
+          "outcome": "pass",
+          "platform": "x",
+          "reasons": [],
+          "variant_id": 3
+        },
+        "content_hash": "6863eae2a0210b96a9129352f2d4856816bfee091b031f927daaed6e909a266b",
+        "created_at": "2026-10-13T14:44:23Z",
+        "updated_at": "2026-10-13T14:44:23Z"
+      }
+    ]
+  },
+  {
+    "item": {
+      "id": 1,
+      "title": "Aggiornamento di sviluppo (8 commit)",
+      "category": "dev_update",
+      "summary": "Cosa e' cambiato nel repository nell'ultimo periodo.",
+      "risk": "high",
+      "state": "draft",
+      "facts": [
+        {
+          "claim": "Commit 8533d607: Fix the claims table's header, so the command column survives rendering",
+          "excerpt": "fix the claims table's header, so the command column survives rendering the table's body rows carry three cells - the claim, the number, and the command that reproduces it - but the header declared two, and the first body row had no closing pipe. github renders a table from its",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/8533d6072a246d324490b6f58dfb4bf1a774b385",
+          "verified": true
+        },
+        {
+          "claim": "Commit 9c6fdce6: Add the launch kit: what we may claim, where we may say it, and what to paste",
+          "excerpt": "add the launch kit: what we may claim, where we may say it, and what to paste asked to create social accounts and promote the project. the accounts are the operator's - a person signs up, verifies and posts - and the platforms say so: instagram's terms prohibit creating accounts",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/9c6fdce6e5304c6087fcbec8bb232a8e3fddfdf6",
+          "verified": true
+        },
+        {
+          "claim": "Commit d76744ae: Give the account top-up its own menu entry, and say on the page what it funds",
+          "excerpt": "give the account top-up its own menu entry, and say on the page what it funds the capital account was the third card of five on the paper trading page, which is not where anyone looks for \"where do i put money in\". it now has its own entry in the rail's trading & risk group, nam",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/d76744ae4bd898a362fd9da615b705785e693342",
+          "verified": true
+        },
+        {
+          "claim": "Commit b0e9dc39: Show the benchmark beside the lab's out-of-sample number, or admit there is none",
+          "excerpt": "show the benchmark beside the lab's out-of-sample number, or admit there is none the strategy lab's holdout tile promised a verdict it could not deliver on its own: an out-of-sample figure with no reference beside it. the panel gains a `vs market` tile - the excess over buy & ho",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/b0e9dc39234e445f89563bfb616c6be63eab7de6",
+          "verified": true
+        },
+        {
+          "claim": "Commit ec1e0e6e: Measure buy & hold beside every fold and holdout, so a metric reads as excess",
+          "excerpt": "measure buy & hold beside every fold and holdout, so a metric reads as excess a walk-forward sharpe on a bitcoin series that tripled says nothing on its own. the evaluation had no reference point at the fold level at all: the money simulation has carried a buy & hold benchmark a",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/ec1e0e6e6858674fbe3974b834a018f4cc849d4a",
+          "verified": true
+        },
+        {
+          "claim": "Commit d71961b1: Give the dashboard ten pages in five groups, and the stop its own Risk Center",
+          "excerpt": "give the dashboard ten pages in five groups, and the stop its own risk center the trading view had grown into everything that touches a rail: the live chart, the emergency stop, the risk limits, the alerts, the key probe, the capital account and the paper session. seven cards, o",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/d71961b17f642db481ec78a18455e4ee53efd649",
+          "verified": true
+        },
+        {
+          "claim": "Commit 2b288788: Close the LAN bind behind 0000, and answer a store that cannot be read",
+          "excerpt": "close the lan bind behind 0000, and answer a store that cannot be read four findings from an audit of the running code, all of them on the failure paths rather than the happy one. the dashboard refused a non-loopback bind only when the login was off, so `--host 0.0.0.0` opened",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/2b288788c4904f469823c4058b50bc4f47f358cc",
+          "verified": true
+        },
+        {
+          "claim": "Commit ac712918: Record what the soak measured on each platform",
+          "excerpt": "record what the soak measured on each platform the ci run is the interesting part: with the same load and the same injection, windows denied a lock create by itself and linux denied none, so the natural race the fix is about belongs to windows alone - and the injected one is the",
+          "kind": "commit",
+          "source_url": "https://github.com/SalvoG1234/selftrade/commit/ac712918f1d7a01b8591de10b9c95e432f7dd17f",
+          "verified": true
+        }
+      ],
+      "source_refs": [
+        "commit:8533d6072a24",
+        "commit:9c6fdce6e530",
+        "commit:d76744ae4bd8",
+        "commit:b0e9dc39234e",
+        "commit:ec1e0e6e6858",
+        "commit:d71961b17f64",
+        "commit:2b288788c490",
+        "commit:ac712918f1d7"
+      ],
+      "planned_for": null,
+      "origin": "agent",
+      "notes": "x/it: la lingua non sembra it; x/it: troncato al limite di 280 caratteri; x/en: troncato al limite di 280 caratteri",
+      "created_at": "2026-10-13T14:44:23Z",
+      "updated_at": "2026-10-13T14:44:23Z",
+      "approval": {
+        "id": 1,
+        "subject_type": "content_item",
+        "subject_id": 1,
+        "risk": "high",
+        "reason": "autonomy mode A (draft): a human publishes",
+        "state": "pending",
+        "requested_by": "agent",
+        "requested_at": "2026-10-13T14:44:23Z",
+        "decided_by": null,
+        "decided_at": null,
+        "decision_note": ""
+      }
+    },
+    "slots": [],
+    "variants": [
+      {
+        "id": 2,
+        "item_id": 1,
+        "platform": "x",
+        "lang": "en",
+        "body": "This week on SelfTrade: 8 commits.\n- Fix the claims table's header, so the command column survives rendering\n- Add the launch kit: what we may claim, where we may say it, and what to paste\n- Give the account top-up its own menu entry, and say on the page what it funds\n- Show the…",
+        "hashtags": "#BuildInPublic #Python #QuantTrading",
+        "media": [],
+        "alt_text": "SelfTrade: Aggiornamento di sviluppo (8 commit)",
+        "char_count": 280,
+        "generator": "template",
+        "risk": "low",
+        "policy_state": "pass",
+        "policy_report": {
+          "action": "draft",
+          "checks": [
+            {
+              "check": "kill_switch",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_authorised",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "account_ready",
+              "detail": "draft only: no credential is needed",
+              "outcome": "pass"
+            },
+            {
+              "check": "autonomy_mode",
+              "detail": "mode draft allows drafting",
+              "outcome": "pass"
+            },
+            {
+              "check": "approval",
+              "detail": "approval not mandatory (none)",
+              "outcome": "pass"
+            },
+            {
+              "check": "facts_and_sources",
+              "detail": "8 fact(s) with sources",
+              "outcome": "pass"
+            },
+            {
+              "check": "format_and_length",
+              "detail": "280 characters",
+              "outcome": "pass"
+            },
+            {
+              "check": "no_secrets_or_pii",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "financial_language",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_rules",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "duplicate",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "frequency",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "language_declared",
+              "detail": "",
+              "outcome": "pass"
+            }
+          ],
+          "evaluated_at": "2026-10-13T14:44:23Z",
+          "outcome": "pass",
+          "platform": "x",
+          "reasons": [],
+          "variant_id": 2
+        },
+        "content_hash": "e079321859faf829fe19ea18136d9035c186df520198e0c3b6fb1981118a5bf0",
+        "created_at": "2026-10-13T14:44:23Z",
+        "updated_at": "2026-10-13T14:44:23Z"
+      },
+      {
+        "id": 1,
+        "item_id": 1,
+        "platform": "x",
+        "lang": "it",
+        "body": "Su SelfTrade questa settimana: 8 commit.\n- Fix the claims table's header, so the command column survives rendering\n- Add the launch kit: what we may claim, where we may say it, and what to paste\n- Give the account top-up its own menu entry, and say on the page what it funds\n- Sh…",
+        "hashtags": "#BuildInPublic #Python #QuantTrading",
+        "media": [],
+        "alt_text": "SelfTrade: Aggiornamento di sviluppo (8 commit)",
+        "char_count": 280,
+        "generator": "template",
+        "risk": "high",
+        "policy_state": "pass",
+        "policy_report": {
+          "action": "draft",
+          "checks": [
+            {
+              "check": "kill_switch",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_authorised",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "account_ready",
+              "detail": "draft only: no credential is needed",
+              "outcome": "pass"
+            },
+            {
+              "check": "autonomy_mode",
+              "detail": "mode draft allows drafting",
+              "outcome": "pass"
+            },
+            {
+              "check": "approval",
+              "detail": "approval not mandatory (none)",
+              "outcome": "pass"
+            },
+            {
+              "check": "facts_and_sources",
+              "detail": "8 fact(s) with sources",
+              "outcome": "pass"
+            },
+            {
+              "check": "format_and_length",
+              "detail": "280 characters",
+              "outcome": "pass"
+            },
+            {
+              "check": "no_secrets_or_pii",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "financial_language",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "platform_rules",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "duplicate",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "frequency",
+              "detail": "",
+              "outcome": "pass"
+            },
+            {
+              "check": "language_declared",
+              "detail": "",
+              "outcome": "pass"
+            }
+          ],
+          "evaluated_at": "2026-10-13T14:44:23Z",
+          "outcome": "pass",
+          "platform": "x",
+          "reasons": [],
+          "variant_id": 1
+        },
+        "content_hash": "f57e440ce153b9cef6d5c4623c1f63b9913cad2931d456bfc2187f97dcaf272c",
+        "created_at": "2026-10-13T14:44:23Z",
+        "updated_at": "2026-10-13T14:44:23Z"
+      }
+    ]
+  }
+]

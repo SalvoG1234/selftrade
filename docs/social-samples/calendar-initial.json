@@ -1,0 +1,470 @@
+[
+  {
+    "date": "2026-10-13",
+    "time": "09:30",
+    "platform": "x",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-13",
+    "time": "18:00",
+    "platform": "x",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-13",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "dashboard_demo",
+    "label": "Demo della dashboard",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-13",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-14",
+    "time": "09:30",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-14",
+    "time": "18:00",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-14",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-14",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-15",
+    "time": "09:30",
+    "platform": "x",
+    "category": "experiment",
+    "label": "Esperimento e risultato reale",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-15",
+    "time": "18:00",
+    "platform": "x",
+    "category": "experiment",
+    "label": "Esperimento e risultato reale",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-15",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "dashboard_demo",
+    "label": "Demo della dashboard",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-15",
+    "time": "17:00",
+    "platform": "github",
+    "category": "contribute",
+    "label": "Invito a contribuire",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-16",
+    "time": "09:30",
+    "platform": "x",
+    "category": "feedback_request",
+    "label": "Richiesta di feedback",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-16",
+    "time": "18:00",
+    "platform": "x",
+    "category": "feedback_request",
+    "label": "Richiesta di feedback",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-16",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-16",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-17",
+    "time": "09:30",
+    "platform": "x",
+    "category": "limits",
+    "label": "Limiti e problemi scoperti",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-17",
+    "time": "18:00",
+    "platform": "x",
+    "category": "limits",
+    "label": "Limiti e problemi scoperti",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-17",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-18",
+    "time": "09:30",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-18",
+    "time": "18:00",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-18",
+    "time": "17:00",
+    "platform": "github",
+    "category": "contribute",
+    "label": "Invito a contribuire",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-19",
+    "time": "09:30",
+    "platform": "x",
+    "category": "dev_update",
+    "label": "Aggiornamento di sviluppo",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-19",
+    "time": "18:00",
+    "platform": "x",
+    "category": "dev_update",
+    "label": "Aggiornamento di sviluppo",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-19",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-19",
+    "time": "17:00",
+    "platform": "github",
+    "category": "contribute",
+    "label": "Invito a contribuire",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-20",
+    "time": "09:30",
+    "platform": "x",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-20",
+    "time": "18:00",
+    "platform": "x",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-20",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "dashboard_demo",
+    "label": "Demo della dashboard",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-20",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-21",
+    "time": "09:30",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-21",
+    "time": "18:00",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-21",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-21",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-22",
+    "time": "09:30",
+    "platform": "x",
+    "category": "experiment",
+    "label": "Esperimento e risultato reale",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-22",
+    "time": "18:00",
+    "platform": "x",
+    "category": "experiment",
+    "label": "Esperimento e risultato reale",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-22",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "dashboard_demo",
+    "label": "Demo della dashboard",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-22",
+    "time": "17:00",
+    "platform": "github",
+    "category": "contribute",
+    "label": "Invito a contribuire",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-23",
+    "time": "09:30",
+    "platform": "x",
+    "category": "feedback_request",
+    "label": "Richiesta di feedback",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-23",
+    "time": "18:00",
+    "platform": "x",
+    "category": "feedback_request",
+    "label": "Richiesta di feedback",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-23",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-23",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-24",
+    "time": "09:30",
+    "platform": "x",
+    "category": "limits",
+    "label": "Limiti e problemi scoperti",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-24",
+    "time": "18:00",
+    "platform": "x",
+    "category": "limits",
+    "label": "Limiti e problemi scoperti",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-24",
+    "time": "17:00",
+    "platform": "github",
+    "category": "tech_explainer",
+    "label": "Spiegazione tecnica",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-25",
+    "time": "09:30",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-25",
+    "time": "18:00",
+    "platform": "x",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-25",
+    "time": "17:00",
+    "platform": "github",
+    "category": "contribute",
+    "label": "Invito a contribuire",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-26",
+    "time": "09:30",
+    "platform": "x",
+    "category": "dev_update",
+    "label": "Aggiornamento di sviluppo",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-26",
+    "time": "18:00",
+    "platform": "x",
+    "category": "dev_update",
+    "label": "Aggiornamento di sviluppo",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-26",
+    "time": "12:30",
+    "platform": "instagram",
+    "category": "build_in_public",
+    "label": "Build in public",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  },
+  {
+    "date": "2026-10-26",
+    "time": "17:00",
+    "platform": "github",
+    "category": "contribute",
+    "label": "Invito a contribuire",
+    "status": "proposal",
+    "note": "proposal only: filled when the repository has real news"
+  }
+]

@@ -1,0 +1,85 @@
+# The always-on half of the hybrid deployment: a worker that keeps ticking while the
+# operator's PC is off, and the admin dashboard behind a password.
+#
+# Quick start (from the repository root):
+#   cp .env.example .env        # compose reads it for the values below; it is gitignored
+#   docker compose up -d --build
+#   docker compose logs -f worker
+#
+# Nothing here publishes by itself: the worker simulates until SOCIAL_TICK_LIVE=1 is
+# set in .env, and even then the policy engine, the approval queue and the kill
+# switch inside the orchestrator can refuse.  The dashboard is the only way in, and
+# it refuses to bind 0.0.0.0 without a password.
+#
+# The database, the audit log and the generated media live in the ``social-state``
+# volume so that rebuilding the image never touches the operator's history.  See
+# docs/SOCIAL-MANAGER.md for the backup, migration and credential steps.
+
+name: selftrade-social
+
+x-social-common: &social-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: selftrade-social:local
+  env_file:
+    - .env
+  volumes:
+    - social-state:/app/state
+  restart: unless-stopped
+
+services:
+  # One tick every SOCIAL_TICK_SECONDS (default 300).  ``tick`` leases the jobs that
+  # are actually due, so a restart, a slow tick or two overlapping ticks cannot
+  # publish the same post twice: the lease and the duplicate check are in the
+  # database, not in this loop.
+  worker:
+    <<: *social-common
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        live=""
+        if [ "$${SOCIAL_TICK_LIVE:-0}" = "1" ]; then live="--live"; fi
+        while :; do
+          python -m socialmanager tick --limit "$${SOCIAL_TICK_LIMIT:-5}" $$live || true
+          sleep "$${SOCIAL_TICK_SECONDS:-300}"
+        done
+
+  # The same operations the operator performs locally, reachable from a browser.
+  # Ports are published on the host loopback only: a public bind is a deliberate
+  # decision (a reverse proxy with TLS in front of it), not a compose default.
+  dashboard:
+    <<: *social-common
+    command: ["python", "-m", "socialmanager", "serve", "--host", "0.0.0.0", "--port", "8788"]
+    ports:
+      - "127.0.0.1:8788:8788"
+    healthcheck:
+      # A TCP accept proves the listener is bound and the process is accepting; the
+      # panel's own /api/health sits behind the session, on purpose, so it cannot be
+      # used as an unauthenticated probe from outside.
+      test: ["CMD", "python", "-c",
+             "import socket; socket.create_connection(('127.0.0.1', 8788), 3).close()"]
+      interval: 60s
+      timeout: 10s
+      start-period: 15s
+      retries: 3
+
+  # One-shot helpers, not started by ``up``:
+  #   docker compose run --rm init       create the database and record the accounts
+  #   docker compose run --rm backup     a consistent copy into the volume
+  init:
+    <<: *social-common
+    profiles: ["tools"]
+    command: ["python", "-m", "socialmanager", "init"]
+    restart: "no"
+
+  backup:
+    <<: *social-common
+    profiles: ["tools"]
+    command: ["python", "-m", "socialmanager", "backup"]
+    restart: "no"
+
+volumes:
+  social-state:

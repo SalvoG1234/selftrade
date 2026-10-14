@@ -1,0 +1,82 @@
+{
+  "timezone": "Europe/Rome",
+  "timezone_available": true,
+  "start": "2026-10-13",
+  "days": [
+    {
+      "date": "2026-10-13",
+      "slots": []
+    },
+    {
+      "date": "2026-10-14",
+      "slots": [
+        {
+          "id": 1,
+          "platform": "instagram",
+          "run_at": "2026-10-14T10:30:00Z",
+          "state": "pending",
+          "attempts": 0,
+          "last_error": "",
+          "variant_id": 6,
+          "lang": "en",
+          "body": "How Architecture works.\n\nFrom the repository's own docs/ARCHITECTURE.md - the section headings below are the document's own.\n- Architecture\n- Module map\n- The data contract\n- The genome\n\nDocs: https://github.com/SalvoG1234/selftrade",
+          "policy_state": "pass",
+          "item_id": 2,
+          "title": "Spiegazione tecnica: Architecture",
+          "category": "tech_explainer",
+          "risk": "medium",
+          "item_state": "scheduled",
+          "local_time": "12:30"
+        }
+      ]
+    },
+    {
+      "date": "2026-10-15",
+      "slots": [
+        {
+          "id": 2,
+          "platform": "instagram",
+          "run_at": "2026-10-15T10:30:00Z",
+          "state": "pending",
+          "attempts": 0,
+          "last_error": "",
+          "variant_id": 5,
+          "lang": "it",
+          "body": "Come funziona Architecture.\n\nDal documento docs/ARCHITECTURE.md del repository.\n- Architecture\n- Module map\n- The data contract\n- The genome\n\nDocumentazione: https://github.com/SalvoG1234/selftrade",
+          "policy_state": "pass",
+          "item_id": 2,
+          "title": "Spiegazione tecnica: Architecture",
+          "category": "tech_explainer",
+          "risk": "medium",
+          "item_state": "scheduled",
+          "local_time": "12:30"
+        }
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "slots": []
+    },
+    {
+      "date": "2026-10-17",
+      "slots": []
+    },
+    {
+      "date": "2026-10-18",
+      "slots": []
+    },
+    {
+      "date": "2026-10-19",
+      "slots": []
+    }
+  ],
+  "targets": {
+    "x": 3,
+    "instagram": 2,
+    "github": 1
+  },
+  "filled": {
+    "instagram": 2
+  },
+  "unscheduled_drafts": 1
+}
