@@ -79,7 +79,7 @@ jobs:
       # Rolling restores: the newest cache from a previous run, or nothing on a cold
       # start (``init`` then creates the database, and ``sync`` refills it from GitHub).
       - name: Restore the state directory
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: state
           key: social-state-${{ github.run_id }}
