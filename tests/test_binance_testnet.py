@@ -1256,16 +1256,21 @@ def test_a_dry_run_does_not_consult_the_gate(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def _cli_config(tmp_path, *, live=True, enabled=True, extra_lines=()):
+def _cli_config(tmp_path, *, live=True, enabled=True, extra_lines=(), key_file=None):
     """A testnet config whose database and session file stay inside ``tmp_path``."""
     cfg = tmp_path / "config.yaml"
+    binance_lines = [
+        "binance:",
+        f"  enabled: {str(enabled).lower()}",
+        f"  live: {str(live).lower()}",
+        "  base_url: https://testnet.binance.vision/api",
+    ]
+    if key_file is not None:
+        binance_lines.append(f"  key_file: {key_file}")
     cfg.write_text(
         "\n".join(
             [
-                "binance:",
-                f"  enabled: {str(enabled).lower()}",
-                f"  live: {str(live).lower()}",
-                "  base_url: https://testnet.binance.vision/api",
+                *binance_lines,
                 "memory:",
                 f"  db: {(tmp_path / 'state' / 'm.db').as_posix()}",
                 f"session_file: {(tmp_path / 'state' / 'session.json').as_posix()}",
@@ -1295,6 +1300,67 @@ def _cli(monkeypatch, cfg, transport, *args, creds=True):
         monkeypatch.delenv("SELFTD_BINANCE_API_KEY", raising=False)
         monkeypatch.delenv("SELFTD_BINANCE_API_SECRET", raising=False)
     return main(["--config", str(cfg), "binance", *args])
+
+
+# --------------------------------------------------------------------------
+# credentials: the environment first, then the local key file the dashboard writes.
+# A key is never reported - only its source and a fingerprint.
+# --------------------------------------------------------------------------
+
+
+def test_the_broker_signs_with_a_key_from_the_local_store_when_none_is_exported(tmp_path, monkeypatch):
+    """A stored key is a usable key, and the report says where it came from."""
+    from selftrade.binance import BinanceTestnetBroker, key_health
+    from selftrade.config import load_settings
+    from selftrade.secrets import SecretStore
+
+    cfg_path = _cli_config(tmp_path, key_file=(tmp_path / "state" / "secrets.json").as_posix())
+    monkeypatch.delenv("SELFTD_BINANCE_API_KEY", raising=False)
+    monkeypatch.delenv("SELFTD_BINANCE_API_SECRET", raising=False)
+    settings = load_settings(cfg_path)
+    SecretStore(settings.binance.key_file).set(settings.binance.api_key_env, KEY)
+    SecretStore(settings.binance.key_file).set(settings.binance.api_secret_env, SECRET)
+
+    broker = BinanceTestnetBroker(config=settings.binance, symbols=["BTC/USDT"], transport=FakeTransport({}))
+    assert broker._api_key == KEY and broker._api_secret == SECRET
+    assert broker._key_source == "file"
+
+    report = key_health(settings, symbols=["BTC/USDT"], transport=FakeTransport({}))
+    assert report["credentials"]["SELFTD_BINANCE_API_KEY"] is True
+    assert report["credential_source"]["SELFTD_BINANCE_API_KEY"] == "file"
+    assert KEY not in json.dumps(report) and SECRET not in json.dumps(report)
+
+
+def test_the_environment_still_wins_over_the_stored_key(tmp_path, monkeypatch):
+    from selftrade.binance import BinanceTestnetBroker
+    from selftrade.config import load_settings
+    from selftrade.secrets import SecretStore
+
+    cfg_path = _cli_config(tmp_path, key_file=(tmp_path / "state" / "secrets.json").as_posix())
+    settings = load_settings(cfg_path)
+    SecretStore(settings.binance.key_file).set(settings.binance.api_key_env, "stored-key")
+    monkeypatch.setenv("SELFTD_BINANCE_API_KEY", KEY)
+    monkeypatch.setenv("SELFTD_BINANCE_API_SECRET", SECRET)
+
+    broker = BinanceTestnetBroker(config=settings.binance, symbols=["BTC/USDT"], transport=FakeTransport({}))
+    assert broker._api_key == KEY and broker._key_source == "environment"
+
+
+def test_arming_without_any_credential_names_both_ways_to_provide_one(tmp_path, monkeypatch):
+    from selftrade.binance import BinanceTestnetBroker
+    from selftrade.config import load_settings
+    from selftrade.execution.base import BrokerError
+
+    cfg_path = _cli_config(tmp_path, key_file=(tmp_path / "state" / "secrets.json").as_posix())
+    monkeypatch.delenv("SELFTD_BINANCE_API_KEY", raising=False)
+    monkeypatch.delenv("SELFTD_BINANCE_API_SECRET", raising=False)
+    settings = load_settings(cfg_path)
+    with pytest.raises(BrokerError) as exc:
+        BinanceTestnetBroker(
+            config=settings.binance, symbols=["BTC/USDT"], transport=FakeTransport({}), live=True
+        )
+    assert "export SELFTD_BINANCE_API_KEY" in str(exc.value)
+    assert "API keys" in str(exc.value)
 
 
 def test_the_cli_arms_orders_with_the_sealed_gate_and_the_kill_switch(tmp_path, monkeypatch, capsys):  # noqa: E501

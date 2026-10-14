@@ -30,6 +30,9 @@ def _settings(tmp_path):
     # The login password is state too: point it at the tmp dir so no test can ever
     # write the credential into the checked-out `state/` (or read one from there).
     s.dashboard.password_file = str(tmp_path / "state" / "dashboard_auth.json")
+    # Same for the rail credentials: no test may read or write the checked-out
+    # `state/secrets.json`, and the API keys page is served by this same settings object.
+    s.binance.key_file = str(tmp_path / "state" / "secrets.json")
     return s
 
 
@@ -871,6 +874,137 @@ def test_binance_panel_renders_in_the_page(ctx):
     assert "async function refreshKey(force)" in html
     assert "const KEY_REFRESH" in html
     assert "__KEY_REFRESH__" not in html
+
+
+# ------------------------------------------------- the API keys page
+#
+# The one credential the program cannot read out of a config file: the rail's key pair.  What
+# is asserted here is the shape of the answer (a name, a source, a fingerprint - never a
+# value), the confirmation the write needs, and the rule that the environment still wins.
+
+
+def _keys_env_cleared(monkeypatch):
+    """The developer's own shell must not decide what these tests observe."""
+    for name in ("SELFTD_BINANCE_API_KEY", "SELFTD_BINANCE_API_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_the_keys_endpoint_reports_a_source_and_never_a_value(ctx, monkeypatch):
+    _keys_env_cleared(monkeypatch)
+    base, s, _ = ctx
+    code, obj = get(base, "/api/keys")
+
+    assert code == 200 and obj["ok"] is True
+    assert obj["file"] == s.binance.key_file
+    assert obj["exists"] is False and obj["corrupt"] is None
+    assert obj["environment_wins"] is True
+    assert obj["material"] == "clear text"
+    assert [e["variable"] for e in obj["entries"]] == [
+        s.binance.api_key_env, s.binance.api_secret_env,
+    ]
+    assert [e["role"] for e in obj["entries"]] == ["key", "secret"]
+    for entry in obj["entries"]:
+        assert entry["set"] is False and entry["source"] is None
+        assert entry["stored"] is False and entry["fingerprint"] is None
+        assert "value" not in entry
+    # the rail's own switches travel with the credentials, because a key arms nothing
+    assert obj["rail"]["enabled"] is False and obj["rail"]["live"] is False
+    assert obj["rail"]["host_is_testnet"] is True and obj["rail"]["production"] is False
+    assert "arms a rail" in obj["note"] or "enabled, live and --live" in obj["note"]
+    assert not Path(s.binance.key_file).exists()
+
+
+def test_storing_a_key_writes_it_locally_and_returns_only_a_fingerprint(ctx, monkeypatch):
+    _keys_env_cleared(monkeypatch)
+    base, s, _ = ctx
+    secret = "s3cret-value-abc123"
+    code, obj, _ = post(base, "/api/keys", {
+        "action": "set", "confirm": True,
+        "name": s.binance.api_key_env, "value": secret, "by": "test",
+    })
+
+    assert code == 200 and obj["ok"] is True
+    assert obj["result"] == "stored" and obj["label"] == "Binance API key"
+    assert obj["event_id"] is not None and obj["event_error"] is None
+    # the value is on disk (0600 where the platform honours it) ...
+    assert Path(s.binance.key_file).read_text(encoding="utf-8").count(secret) == 1
+    # ... and nowhere in the response, the audit row, or the follow-up read
+    assert secret not in json.dumps(obj)
+    events = Memory(s.memory.db).risk_events()
+    assert len(events) == 1 and events[0]["kind"] == "key_store"
+    assert secret not in json.dumps(events[0])
+    entry = {e["variable"]: e for e in obj["entries"]}[s.binance.api_key_env]
+    assert entry["set"] is True and entry["source"] == "file" and entry["stored"] is True
+    assert re.fullmatch(r"[0-9a-f]{12}", entry["fingerprint"])  # a digest, not the value
+    _, again = get(base, "/api/keys")
+    assert secret not in json.dumps(again)
+    assert again["entries"][0]["fingerprint"] == entry["fingerprint"]
+
+
+def test_a_key_write_needs_a_confirmation_a_known_name_and_a_usable_value(ctx, monkeypatch):
+    _keys_env_cleared(monkeypatch)
+    base, s, _ = ctx
+    code, obj, _ = post(base, "/api/keys", {
+        "action": "set", "name": s.binance.api_key_env, "value": "x",
+    })
+    assert code == 400 and obj["confirm_required"] is True
+    # a string is not a confirmation, exactly like the kill switch
+    code, obj, _ = post(base, "/api/keys", {
+        "action": "set", "confirm": "true", "name": s.binance.api_key_env, "value": "x",
+    })
+    assert code == 400 and obj["confirm_required"] is True
+    # an arbitrary name is refused: this page is not a place to park a secret
+    code, obj, _ = post(base, "/api/keys", {
+        "action": "set", "confirm": True, "name": "AWS_SECRET_ACCESS_KEY", "value": "x",
+    })
+    assert code == 400 and "not a credential" in obj["error"]
+    # and an empty value cannot become a "credential"
+    code, obj, _ = post(base, "/api/keys", {
+        "action": "set", "confirm": True, "name": s.binance.api_key_env, "value": "  ",
+    })
+    assert code == 400 and "empty" in obj["error"]
+    assert not Path(s.binance.key_file).exists()
+    assert Memory(s.memory.db).risk_events() == []
+
+
+def test_the_environment_wins_over_the_stored_key_and_clearing_leaves_it_alone(
+    ctx, monkeypatch
+):
+    base, s, _ = ctx
+    monkeypatch.delenv(s.binance.api_key_env, raising=False)
+    post(base, "/api/keys", {
+        "action": "set", "confirm": True,
+        "name": s.binance.api_key_env, "value": "from-the-file",
+    })
+    monkeypatch.setenv(s.binance.api_key_env, "from-the-shell")
+    _, obj = get(base, "/api/keys")
+    entry = obj["entries"][0]
+    assert entry["set"] is True and entry["source"] == "environment"
+    assert entry["stored"] is True  # still on disk, just not the value in force
+    assert "from-the-shell" not in json.dumps(obj)
+
+    code, cleared, _ = post(base, "/api/keys", {
+        "action": "clear", "confirm": True, "name": s.binance.api_key_env,
+    })
+    assert code == 200 and cleared["result"] == "removed"
+    assert not Path(s.binance.key_file).exists()
+    assert cleared["entries"][0]["source"] == "environment"  # the shell copy is not ours
+    # clearing what was never stored says so instead of pretending
+    code, obj, _ = post(base, "/api/keys", {
+        "action": "clear", "confirm": True, "name": s.binance.api_key_env,
+    })
+    assert code == 200 and obj["result"] == "was not stored"
+
+
+def test_the_keys_endpoint_is_behind_the_login_and_refuses_a_foreign_origin(auth_ctx):
+    base, _ = auth_ctx
+    assert get_http_error(base, "/api/keys") == 401
+    code, _, _ = post(base, "/api/keys", {"action": "set", "confirm": True, "name": "X"})
+    assert code == 401
+    assert get_http_error(base, "/api/keys", cookie=None) == 401
+    code, obj, _ = post(base, "/api/keys", {"action": "clear", "confirm": True},
+                        headers={"Origin": "http://evil.example"})
+    assert code == 403 and "cross-origin" in obj["error"]
 
 
 # --------------------------------------------------- the emergency stop
@@ -2154,19 +2288,19 @@ def test_every_page_declared_in_the_titles_has_a_view_and_a_nav_item(ctx):
     html = _page_html(ctx)
     titles = html[html.index("const TITLES = "):].split("};", 1)[0]
     declared = re.findall(r"(\w+):'[^']+'", titles)
-    assert len(declared) == 11, declared
+    assert len(declared) == 12, declared
     for name in declared:
         assert f'data-view="{name}"' in html, name          # reached from the sidebar
         _view(html, name)                                     # and it exists as a panel
     # the sidebar offers exactly those pages, in a deliberate order: nothing else is clickable
     nav = html[html.index('<nav class="nav"'):html.index("</nav>")]
     assert re.findall(r'data-view="(\w+)"', nav) == [
-        "overview", "market", "lab", "backtest", "trading", "capital", "risk", "agents",
-        "memory", "logs", "settings",
+        "overview", "market", "lab", "backtest", "trading", "capital", "keys", "risk",
+        "agents", "memory", "logs", "settings",
     ]
     # every nav item is a real button that routes through setView, not a dead label
-    assert nav.count('class="nav-item') == 11
-    assert nav.count("onclick=\"setView('") == 11
+    assert nav.count('class="nav-item') == 12
+    assert nav.count("onclick=\"setView('") == 12
 
 
 def test_the_sidebar_groups_the_pages_the_way_the_brief_asks(ctx):
@@ -2258,3 +2392,28 @@ def test_the_capital_page_owns_the_top_up_and_says_what_it_is(ctx):
     assert "/api/killswitch" not in body and "method:'POST'" not in body
     # the movements keep the backend's confirm gate: the page asks before it writes
     assert "function capAsk(" in html and "capGo()" in html
+
+
+def test_the_keys_page_owns_the_paste_form_and_leaves_the_probe_with_the_rail(ctx):
+    """The page that accepts a key: a form, a confirmation, and no copy of the probe panel."""
+    html = _page_html(ctx)
+    keys = _view(html, "keys")
+    for anchor in ('id="ky-status"', 'id="ky-entries"', 'id="ky-key"', 'id="ky-secret"',
+                   'id="ky-set"', 'id="ky-clear"', 'id="ky-confirm"', 'id="ky-go"',
+                   'id="ky-note"', 'id="ky-probe"', 'id="ky-rules"'):
+        assert anchor in keys, anchor
+    # the form is two password fields that are never refilled from the server
+    assert keys.count('type="password"') == 2
+    assert 'id="ky-card"' not in keys
+    # the probe stays exactly where the rail is: one renderer, one set of rules
+    assert 'id="bk-card"' not in keys
+    assert 'id="bk-card"' in _view(html, "trading")
+    assert 'id="tr-session"' in _view(html, "trading")
+    body = _js(html, "renderKeysPage")
+    assert "await refreshKeys();" in body and "POST" not in body
+    # the write keeps the backend's confirm gate, and the page says what it stores in the clear
+    assert "function kyAsk(" in html and "function kyGo(" in html
+    assert "confirm: true" in html and "method:'POST'" in html
+    assert "clear text" in keys and "environment" in keys
+    # the probe verdict it shows is the *other* page's, reached through its own buttons
+    assert "function kyProbe(" in html and "setView('trading')" in html

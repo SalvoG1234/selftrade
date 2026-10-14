@@ -348,6 +348,10 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
         data-tip="Capital: the simulated account and its append-only ledger - credit money, fund a paper session, withdraw, and read every movement with the reason it was made for.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v20"/><path d="M17 6.5c-.9-1.2-2.6-2-4.6-2-2.6 0-4.4 1.3-4.4 3.2 0 2.1 2 2.8 4.6 3.4 2.6.6 4.6 1.3 4.6 3.4 0 1.9-1.9 3.2-4.6 3.2-2.2 0-4-.8-5-2.2"/></svg>
         <span class="lbl">Capital</span></button>
+      <button class="nav-item" data-view="keys" onclick="setView('keys')"
+        data-tip="API keys: the exchange key pair this machine reads - where each value comes from, a fingerprint that says whether it changed, and the one write on the page, which the environment still wins over. Storing a key arms nothing.">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.5 4.5a4.5 4.5 0 1 0 3.2 7.7l3 3"/><path d="M16.5 12.5l2.5 2.5-1.5 1.5"/></svg>
+        <span class="lbl">API keys</span></button>
       <button class="nav-item" data-view="risk" onclick="setView('risk')"
         data-tip="Risk Center: the emergency stop, the sealed limits with the room left before each one trips, and what the alert channel actually sent.">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7.5 2.8v6.4c0 4-3.2 7.4-7.5 8.8-4.3-1.4-7.5-4.8-7.5-8.8V5.8z"/><path d="M12 8.5v3.2M12 15h.01"/></svg>
@@ -443,14 +447,6 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
 
       <!-- ============================ TRADING ============================ -->
       <section class="view" data-view="trading">
-        
-
-        
-
-        
-
-        
-
         <div class="card" id="bk-card">
           <div class="card-h"><h2 data-tip="A read-only probe of the configured Binance Testnet key: permissions, clock offset, signature, balances, open orders and the rate budget. It runs on an unarmed broker, so nothing can be sent from this browser.">Binance key</h2><span class="spacer"></span><span class="muted" id="bk-status">checking…</span></div>
           <div class="toolbar">
@@ -460,6 +456,8 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
           </div>
           <div class="card-b" id="bk-body"><span class="muted">…</span></div>
         </div>
+
+
 
                   <div class="grid">
           <div class="card col-4">
@@ -534,6 +532,45 @@ pre.log{margin:0;padding:12px 14px;background:var(--panel-2);border-radius:var(-
         <div class="card">
           <div class="card-h"><h2 data-tip="What a credit here is, what it funds, and what it never touches. The ledger is local; the real rails read their own balance.">What a top-up is, and what it is not</h2></div>
           <div class="card-b"><div id="cap-notes" class="muted"></div></div>
+        </div>
+      </section>
+
+      <!-- ============================ API KEYS =========================== -->
+      <section class="view" data-view="keys">
+        <div class="card">
+          <div class="card-h"><h2 data-tip="The one credential the program cannot read from the environment if you have not exported it: the exchange key pair, stored here on request. The environment always wins over this file.">Rail credentials</h2><span class="spacer"></span><span class="muted" id="ky-status">loading…</span></div>
+          <div class="card-b">
+            <div class="tiles" id="ky-entries"></div>
+            <div class="toolbar">
+              <label class="fld">API key <span class="search"><span class="mag">⌕</span><input id="ky-key" type="password" size="24" spellcheck="false" autocomplete="off" oninput="kyButtons()" data-tip="The Binance key, pasted here once. It is written to the local key file (clear text, 0600 where the platform honours it) and is never shown again - only a fingerprint of it is."></span></label>
+              <label class="fld">API secret <span class="search"><span class="mag">⌕</span><input id="ky-secret" type="password" size="24" spellcheck="false" autocomplete="off" oninput="kyButtons()" data-tip="The matching secret. It has to be usable to sign a request, so it cannot be hashed the way the dashboard password is: the file holds it in clear text, and the page says so."></span></label>
+              <button class="btn sm primary" id="ky-set" onclick="kyAsk('set')" disabled data-tip="Asks for a confirmation that names what is about to be written, then stores the value(s) you typed. Nothing is shown back afterwards.">store the pair</button>
+              <button class="btn sm" id="ky-clear" onclick="kyAsk('clear')" disabled data-tip="Forgets the locally stored value(s). An environment variable of the same name is untouched - it is not yours to clear from a page.">clear stored</button>
+              <span class="spacer"></span>
+              <button class="btn sm ghost" onclick="refreshKeys()" data-tip="Re-reads the credential state. This costs no network: the key file and the environment are local.">refresh</button>
+            </div>
+            <div class="toolbar hidden" id="ky-confirm">
+              <span class="muted" id="ky-confirm-text"></span>
+              <span class="spacer"></span>
+              <button class="btn sm primary" id="ky-go" onclick="kyGo()" data-tip="Applies the change: the value is written to the key file and the change is recorded as a risk event naming the credential - never the value.">confirm</button>
+              <button class="btn sm ghost" onclick="kyCancel()" data-tip="Closes the confirmation without writing anything.">cancel</button>
+            </div>
+            <div class="card-sub" id="ky-msg"></div>
+            <div class="card-sub" id="ky-probe"></div>
+            <div class="card-sub" id="ky-note"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h2 data-tip="The rules this page keeps, stated where a reader can check them against the code.">What storing a key does, and what it does not do</h2></div>
+          <div class="card-b">
+            <ul id="ky-rules" style="margin:6px 0 0 16px;padding:0">
+              <li><b>The environment wins.</b> A variable of the same name that is exported in the shell is the value the rail uses; this file is only read when that variable is empty, and the page reports which one is in force.</li>
+              <li><b>A value is never returned.</b> The API reports the name, the source and a SHA-256 <b>fingerprint</b> - enough to see that a key changed, not enough to learn it. Nothing on this page writes a value back into the form.</li>
+              <li><b>Clear text, on this machine.</b> A secret that has to be sent to an exchange cannot be hashed. Whoever can read the key file can use the key, and whoever can read it can already rewrite this project's database, its reports and the dashboard password record beside it. A key that must not be readable by the account running this program does not belong here.</li>
+              <li><b>Storing arms nothing.</b> The rail still needs <span class="mono">enabled</span> and <span class="mono">live</span> in the config and <span class="mono">--live</span> on the command, the sealed risk gate still checks every order against the 5% / 2% / 15% caps, and the kill switch still refuses them. A key in this file cannot place an order by itself.</li>
+              <li><b>Every change is audited.</b> A name, an action and who did it, filed as a <span class="mono">key_store</span> risk event you can read in System Logs.</li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -821,11 +858,12 @@ const REFRESH = __REFRESH__ * 1000;      /* panels */
 const MK_REFRESH = __MK_REFRESH__ * 1000; /* live market chart */
 const KEY_REFRESH = __KEY_REFRESH__ * 1000;
 
-const VIEWS = ['overview', 'market', 'trading', 'capital', 'lab', 'backtest', 'risk',
+const VIEWS = ['overview', 'market', 'trading', 'capital', 'keys', 'lab', 'backtest', 'risk',
   'agents', 'memory', 'logs', 'settings'];
 const TITLES = {overview:'Overview', market:'Market', trading:'Paper Trading',
-  capital:'Capital', lab:'Strategy Lab', backtest:'Experiments', risk:'Risk Center',
-  agents:'Agent & Memory', memory:'Memory & Knowledge', logs:'System Logs', settings:'System'};
+  capital:'Capital', keys:'API keys', lab:'Strategy Lab', backtest:'Experiments',
+  risk:'Risk Center', agents:'Agent & Memory', memory:'Memory & Knowledge',
+  logs:'System Logs', settings:'System'};
 
 const S = {
   authed: false, started: false, view: 'overview',
@@ -1101,6 +1139,7 @@ async function renderActive(){
     else if(S.view === 'market') await renderMarketPage();
     else if(S.view === 'trading') await renderTrading();
     else if(S.view === 'capital') await renderCapitalPage();
+    else if(S.view === 'keys') await renderKeysPage();
     else if(S.view === 'risk') await renderRiskCenter();
     else if(S.view === 'lab') await renderLab();
     else if(S.view === 'agents') await renderAgents();
@@ -2071,6 +2110,153 @@ async function renderMarketPage(){
   if(notes) notes.textContent = 'Candles and 24h stats come from the public Binance '
     + 'feed - keyless, read-only, cached server-side. No account is involved and this '
     + 'page cannot place, change or cancel anything.';
+}
+/* =============================== API KEYS ================================= */
+/* The rail's credential: where it comes from, and the one write on this page.  The form is
+   static markup on purpose - the refresh tick repaints the state above it and can never wipe
+   half-typed values, and nothing on this page ever writes a value back into a field. */
+async function renderKeysPage(){
+  await refreshKeys();
+}
+async function refreshKeys(){
+  let k; try { k = await j('/api/keys'); } catch(e){ return; }
+  S.keys = k;
+  kyRender(k);
+}
+function kyRender(k){
+  const entries = k.entries || [];
+  const st = $('ky-status');
+  if(st){
+    const set = entries.filter(e => e.set).length;
+    const stored = entries.filter(e => e.stored).length;
+    st.className = stored ? 'ok' : 'muted';
+    st.textContent = set
+      ? (set + ' of ' + entries.length + ' in use' + (stored ? '' : ' (from the environment)'))
+      : 'nothing stored';
+  }
+  mount('ky-entries', entries.map(e => tile(
+    e.label,
+    e.set ? 'set' : 'not set',
+    e.source === 'environment' ? 'from the environment (wins)'
+      : (e.stored ? 'from the local key file' : 'no value anywhere'),
+    e.set ? 'ok' : 'muted',
+    'The effective value for ' + e.variable + ': an exported variable of that name wins over the key file, and only the source and a fingerprint are ever reported.'
+  )).join(''));
+  mount('ky-note', esc(k.note || ''));
+  kyProbe();
+  const rules = $('ky-rules');
+  if(rules && k.rail){
+    const r = k.rail;
+    const head = rules.querySelector('[data-rail]') || document.createElement('li');
+    head.setAttribute('data-rail', '1');
+    head.innerHTML = '<b>The rail right now.</b> ' + esc(r.name) + ' is '
+      + (r.enabled ? 'enabled' : 'disabled in the config')
+      + ', ' + (r.live ? 'live' : 'not live')
+      + ', pointing at <span class="mono">' + esc(r.base_url) + '</span> ('
+      + (r.host_is_testnet ? 'Spot Testnet' : (r.production ? 'PRODUCTION - real money' : 'an unknown host'))
+      + '). The <span class="mono">probe</span> card above is what says whether a key actually works.';
+    if(!head.parentNode) rules.insertBefore(head, rules.firstChild);
+  }
+  kyButtons();
+}
+function kyValue(role){
+  const el = $(role === 'key' ? 'ky-key' : 'ky-secret');
+  return (el && el.value) ? el.value.trim() : '';
+}
+function kyButtons(){
+  const entries = (S.keys && S.keys.entries) || [];
+  const typed = entries.some(e => kyValue(e.role));
+  const setB = $('ky-set'); if(setB) setB.disabled = !typed;
+  const anyStored = entries.some(e => e.stored);
+  const clrB = $('ky-clear'); if(clrB) clrB.disabled = !anyStored;
+}
+function kyMsg(text, tone){
+  const m = $('ky-msg');
+  if(!m) return;
+  m.className = tone ? ('card-sub ' + tone) : 'card-sub';
+  m.textContent = text || '';
+}
+let kyPending = null;
+function kyAsk(action){
+  const entries = (S.keys && S.keys.entries) || [];
+  kyMsg('', '');
+  if(action === 'set'){
+    const targets = entries.filter(e => kyValue(e.role))
+      .map(e => ({action: 'set', name: e.variable, value: kyValue(e.role)}));
+    if(!targets.length){ kyMsg('type a value first: nothing would be written', 'bad'); return; }
+    kyPending = targets;
+    const what = targets.map(t => t.name).join(' and ');
+    $('ky-confirm-text').textContent = 'store a new value for ' + what
+      + ' in ' + ((S.keys && S.keys.file) || 'the key file')
+      + ' (the value you just typed - it is not shown back, and an exported variable of the '
+      + 'same name still wins)';
+  } else {
+    const targets = entries.filter(e => e.stored)
+      .map(e => ({action: 'clear', name: e.variable}));
+    if(!targets.length){
+      kyMsg('nothing is stored here: an environment variable is not yours to clear from this page', 'bad');
+      return;
+    }
+    kyPending = targets;
+    $('ky-confirm-text').textContent = 'forget the locally stored value for '
+      + targets.map(t => t.name).join(' and ')
+      + ' - an environment variable of the same name is untouched';
+  }
+  $('ky-confirm').classList.remove('hidden');
+  const go = $('ky-go'); if(go) go.disabled = false;
+}
+function kyCancel(){
+  kyPending = null;
+  $('ky-confirm').classList.add('hidden');
+  kyMsg('', '');
+}
+/* Whether the stored key actually works is the *probe's* answer, and the probe is the card
+   that lives with the rail on Paper Trading.  A second copy of it here would be a second
+   renderer to keep in step, so this page states the last verdict and offers the two things a
+   person would do next: run it, or open the page that shows every step of it. */
+function kyProbe(){
+  const el = $('ky-probe'); if(!el) return;
+  const p = S.key;
+  const verdict = p ? (p.verdict || 'not checked') : 'not asked yet';
+  const cls = !p ? 'muted' : (p.ok ? 'ok' : 'bad');
+  el.innerHTML = 'Whether this key can sign a request is the probe\u2019s answer, and the probe '
+    + 'lives with the rail: <span class="' + cls + '">' + esc(verdict) + '</span>'
+    + (p && p.cached ? ' <span class="muted">(cached)</span>' : '')
+    + ' <button class="btn sm ghost" onclick="kyTest()" data-tip="Runs the same read-only '
+    + 'probe as `binance check`, including the signature test. Nothing is sent that could '
+    + 'change anything on the exchange.">run it now</button>'
+    + ' <button class="btn sm ghost" onclick="setView(\'trading\')" data-tip="Paper Trading '
+    + 'shows the whole probe: permissions, clock offset, balances, open orders and the rate '
+    + 'budget.">see every step</button>';
+}
+async function kyTest(){
+  await refreshKey(true).catch(() => {});
+  kyProbe();
+}
+async function kyGo(){
+  if(!kyPending) return;
+  const targets = kyPending;
+  const go = $('ky-go'); if(go) go.disabled = true;
+  const done = [];
+  for(const t of targets){
+    try {
+      const r = await fetch('/api/keys', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(Object.assign({confirm: true}, t))});
+      const body = await r.json().catch(() => ({}));
+      if(!r.ok || body.error){ kyMsg(body.error || ('HTTP ' + r.status), 'bad'); break; }
+      done.push((body.label || t.name) + ': ' + (body.result || 'done')
+        + (body.event_id != null ? (' (event #' + body.event_id + ')') : ' - not recorded'));
+      S.keys = body;
+    } catch(e) { kyMsg('the request failed: ' + e, 'bad'); break; }
+  }
+  kyPending = null;
+  $('ky-confirm').classList.add('hidden');
+  if(done.length){
+    const key = $('ky-key'), sec = $('ky-secret');
+    key.value = ''; sec.value = '';
+    kyMsg(done.join(' · '), 'ok');
+  }
+  kyRender(S.keys || {});
 }
 async function renderCapitalPage(){
   /* The account and its ledger, with the same confirm-gated movements the CLI's `capital`

@@ -159,6 +159,12 @@ class BinanceConfig:
     base_url: str = "https://testnet.binance.vision/api"
     api_key_env: str = "SELFTD_BINANCE_API_KEY"
     api_secret_env: str = "SELFTD_BINANCE_API_SECRET"
+    key_file: str = "state/secrets.json"
+    """Where the dashboard's **API keys** page stores this rail's credentials when the
+    environment variables above are empty (``selftrade.secrets``).  The environment always
+    wins; this file is clear text, gitignored by default, and no endpoint ever returns a
+    value out of it.  A key sitting here arms nothing: ``enabled``, ``live`` and ``--live``
+    still gate every order."""
     symbol: str = "BTC/USDT"
     allowed_symbols: list[str] = field(default_factory=list)
     quote_asset: str = "USDT"

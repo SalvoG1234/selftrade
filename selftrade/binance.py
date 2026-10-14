@@ -59,7 +59,7 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 from decimal import ROUND_DOWN, Decimal, InvalidOperation
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.parse import urlencode
 
 import pandas as pd
@@ -80,6 +80,8 @@ from .execution.base import (
 )
 from .config import BINANCE_PRODUCTION_HOSTS
 from .execution.risk_gate import ALERT_KIND
+from .secrets import DEFAULT_FILE as DEFAULT_SECRET_FILE
+from .secrets import SecretStore
 
 TESTNET_HOST = "testnet.binance.vision"
 DEFAULT_BASE_URL = f"https://{TESTNET_HOST}/api"
@@ -121,6 +123,34 @@ STOP_CLIENT_ID_SUFFIX = "-stop"
 #: is filled".  The derived stop id is therefore looked up before it is sent, and it is
 #: kept short so the entry id plus the suffix stays a reasonable length.
 STOP_CLIENT_ID_MAX = 36
+
+
+#: How a credential's origin is named in the probe's own text: the operator is told *where*
+#: a key came from, because "the rail can sign" and "you exported it yourself" are different
+#: states (and a key in the local store is a key nobody exported).
+SOURCE_WORDS = {
+    "environment": "the environment",
+    "file": "the local key file",
+    "argument": "the caller",
+}
+
+
+def credential_source(
+    cfg: Any, env_name: str, *, environ: Mapping[str, str] | None = None
+) -> tuple[str | None, str | None]:
+    """``(value, source)`` for one rail credential, with the environment first.
+
+    The environment wins, so a machine that exports the pair cannot be surprised by a file
+    someone left behind; the local store (:mod:`selftrade.secrets`) is only consulted when the
+    variable is empty.  A value is never logged, printed or returned by any endpoint - what
+    callers report is the *source* and a fingerprint.
+    """
+    env = (os.environ if environ is None else environ).get(str(env_name))
+    if env:
+        return str(env), "environment"
+    path = str(getattr(cfg, "key_file", None) or DEFAULT_SECRET_FILE)
+    value, source = SecretStore(path, environ=environ).resolve(str(env_name))
+    return value, source
 
 
 class BinanceError(BrokerError):
@@ -290,8 +320,24 @@ class BinanceTestnetBroker(BrokerAdapter):
         key_env = str(getattr(cfg, "api_key_env", "SELFTD_BINANCE_API_KEY"))
         secret_env = str(getattr(cfg, "api_secret_env", "SELFTD_BINANCE_API_SECRET"))
         self._key_env, self._secret_env = key_env, secret_env
-        self._api_key = api_key if api_key is not None else os.environ.get(key_env, "")
-        self._api_secret = api_secret if api_secret is not None else os.environ.get(secret_env, "")
+        # An explicit argument wins (tests and the CLI pass one), then the environment, then
+        # the local store the dashboard's API keys page writes.  Whatever the source, the
+        # value stays in this object and is never reported: `credential_health` below is what
+        # a panel may read.
+        if api_key is not None:
+            self._api_key = str(api_key)
+            self._key_source: str | None = "argument"
+        else:
+            value, source = credential_source(cfg, key_env)
+            self._api_key = value or ""
+            self._key_source = source
+        if api_secret is not None:
+            self._api_secret = str(api_secret)
+            self._secret_source: str | None = "argument"
+        else:
+            value, source = credential_source(cfg, secret_env)
+            self._api_secret = value or ""
+            self._secret_source = source
 
         if live and not self.enabled:
             raise BrokerError(
@@ -301,7 +347,8 @@ class BinanceTestnetBroker(BrokerAdapter):
         if live and not (self._api_key and self._api_secret):
             raise BrokerError(
                 "refusing to arm the binance adapter without credentials: export "
-                f"{key_env} and {secret_env}, never put them in the repository"
+                f"{key_env} and {secret_env}, or store them from the dashboard's API keys "
+                "page (they go to the local key file, never into the repository)"
             )
         self._armed = bool(live)
 
@@ -517,7 +564,8 @@ class BinanceTestnetBroker(BrokerAdapter):
         if signed:
             if not (self._api_key and self._api_secret):
                 raise BrokerError(
-                    f"missing credentials: export {self._key_env} and {self._secret_env}"
+                    f"missing credentials: export {self._key_env} and {self._secret_env}, "
+                    "or store them from the dashboard's API keys page"
                 )
             query["timestamp"] = self._timestamp_ms()
             query.setdefault("recvWindow", self.recv_window)
@@ -957,6 +1005,13 @@ class BinanceTestnetBroker(BrokerAdapter):
             self._key_env: bool(self._api_key),
             self._secret_env: bool(self._api_secret),
         }
+        # Where each of those came from (environment, the local key file, or the argument the
+        # caller passed), because "the rail can sign" and "you exported it yourself" are
+        # different states for an operator to be told apart.  Never the value.
+        credential_source_map = {
+            self._key_env: self._key_source,
+            self._secret_env: self._secret_source,
+        }
         report: dict[str, Any] = {
             "provider": self.name,
             "base_url": self.base_url,
@@ -965,6 +1020,7 @@ class BinanceTestnetBroker(BrokerAdapter):
             "mode": self.mode,
             "armed": self._armed,
             "credentials": credentials,
+            "credential_source": credential_source_map,
             "steps": steps,
             "problems": problems,
             "warnings": warnings,
@@ -1006,16 +1062,22 @@ class BinanceTestnetBroker(BrokerAdapter):
         if missing:
             problems.append("no credentials: export " + " and ".join(missing))
             hints.append(
-                "set them for the process that runs the CLI (or for your user); never in "
-                "config.yaml and never in the repository"
+                "export them for the process that runs the CLI (or for your user), or store "
+                "them on the dashboard's API keys page; never in config.yaml and never in the "
+                "repository"
             )
             step("credentials", False, "missing " + ", ".join(missing))
         else:
+            where = ", ".join(
+                f"{name} from "
+                f"{SOURCE_WORDS.get(str(credential_source_map.get(name) or ''), 'an argument')}"
+                for name in credentials
+            )
             step(
                 "credentials",
                 True,
-                "both environment variables are set (their values are never read back "
-                "or printed)",
+                f"both credentials are available ({where}); their values are never read "
+                "back or printed",
             )
             self._check_clock(report, step, problems)
             account = self._check_signature(report, step, problems, hints)
@@ -1939,6 +2001,8 @@ def key_health(
     host = base_url.split("//", 1)[-1].split("/", 1)[0].lower()
     key_env = str(getattr(cfg, "api_key_env", "SELFTD_BINANCE_API_KEY"))
     secret_env = str(getattr(cfg, "api_secret_env", "SELFTD_BINANCE_API_SECRET"))
+    key_value, key_from = credential_source(cfg, key_env)
+    secret_value, secret_from = credential_source(cfg, secret_env)
     report: dict[str, Any] = {
         "provider": "binance-testnet",
         "base_url": base_url,
@@ -1947,9 +2011,16 @@ def key_health(
         "production": host in PRODUCTION_HOSTS,
         "mode": "paper",
         "armed": False,  # a probe never arms anything
+        # `credentials` keeps its meaning - "is a credential available for this name" - and
+        # now counts the local store too, because a rail that can sign with a stored key is
+        # not "missing credentials".  The source is reported beside it, and never the value.
         "credentials": {
-            key_env: bool(os.environ.get(key_env)),
-            secret_env: bool(os.environ.get(secret_env)),
+            key_env: bool(key_value),
+            secret_env: bool(secret_value),
+        },
+        "credential_source": {
+            key_env: key_from,
+            secret_env: secret_from,
         },
         "steps": [],
         "problems": [],

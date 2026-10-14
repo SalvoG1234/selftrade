@@ -1,6 +1,6 @@
 """Local dashboard: a stdlib ``http.server`` with a JSON API, a login and a live chart.
 
-Four things, in the order a new operator meets them:
+What the page is, in the order a new operator meets it:
 
 1. **a login.**  ``dashboard.auth`` is on by default and is *mandatory* for any
    non-loopback bind (opening the loop controls on the LAN without a password is
@@ -26,14 +26,25 @@ Four things, in the order a new operator meets them:
    browser, and refreshes it every ``dashboard.key_refresh_s``.  When the rail is
    switched off the panel says so, with the hint that turns it on, instead of
    pretending there is nothing to see.
-5. **an emergency stop.**  ``POST /api/killswitch`` arms or resets the *same*
+
+   Next to it, **the API keys page** is the one place a value can be *typed*:
+   ``GET /api/keys`` reports, for the rail credential names the config names,
+   where each effective value comes from - the **environment**, which always
+   wins, or the local key file (``state/secrets.json`` by default) - plus a
+   SHA-256 **fingerprint** so "did the key change?" is answerable, and
+   ``POST /api/keys`` stores or forgets one of those names, always with an
+   explicit ``confirm`` and filed as a ``key_store`` risk event naming the
+   credential.  No method of this API ever returns a value, the names are the
+   rails' own rather than free-form, and the page says plainly that the file is
+   **clear text** and that a key in it arms nothing (:mod:`selftrade.secrets`).
+6. **an emergency stop.**  ``POST /api/killswitch`` arms or resets the *same*
    file-backed kill switch the risk gate, the paper loop and the Binance adapter
    consult before every order, and ``GET /api/killswitch`` shows its state and audit
    trail, refreshed with the panels.  It is the one write action this otherwise
    read-only page offers, and it is offered precisely because of what it cannot do:
    arming *refuses* orders, it never places one.  Both directions need an explicit
    ``confirm`` in the body, so a stray POST cannot flip the switch.
-6. **a risk-limits panel.**  ``GET /api/risk`` measures the active paper session
+7. **a risk-limits panel.**  ``GET /api/risk`` measures the active paper session
    against the sealed caps - drawdown, today's P&L and exposure - and reports the
    **headroom** left before each one trips, with the two limits that can halt trading
    called out from the two that only refuse an order.  The arithmetic is not repeated
@@ -42,7 +53,7 @@ Four things, in the order a new operator meets them:
    read, no exchange and no rate budget.  It also says whether the optional alert
    channel is on and **what it still owes** (``pending``), because a red row nobody
    has been told about is the one row worth acting on.
-7. **an alerts card.**  ``GET /api/alerts`` reads the alert channel's own ledger and
+8. **an alerts card.**  ``GET /api/alerts`` reads the alert channel's own ledger and
    lists what it has actually **sent** - when, which kind, which band, and the first line
    of what was said - newest first, with a halt the *program* armed marked as such.  Only
    deliveries are recorded there, so the page cannot show a message that never left the
@@ -54,7 +65,7 @@ Four things, in the order a new operator meets them:
    explicit ``confirm`` and a reason.  It moves **simulated** capital between a local
    ledger and a local paper session: no exchange call, no key, no order, and no route
    here from the model side (see :mod:`selftrade.capital`).
-8. **the loop controls.**  ``start`` **launches the tracked loop** - ``python -m
+10. **the loop controls.**  ``start`` **launches the tracked loop** - ``python -m
    selftrade evolve --session`` - as a detached child of this server, and the pid, the
    log (``state/loop.log``) and the generation count come back with it; ``pause``,
    ``resume`` and ``stop`` are delivered to that process through the session file, and
@@ -65,10 +76,10 @@ Four things, in the order a new operator meets them:
 Endpoints: ``/api/whoami``, ``/api/login``, ``/api/logout``, ``/api/password``,
 ``/api/health``, ``/api/overview``, ``/api/equity``, ``/api/trades``,
 ``/api/experiments``, ``/api/hall``, ``/api/lessons``, ``/api/history``,
-``/api/session``, ``/api/paper``, ``/api/market``, ``/api/binance``, ``/api/risk``,
-``/api/alerts``, ``/api/capital``, ``/api/lab``, ``/api/logs``, ``/api/settings``,
-``GET /api/killswitch``, ``POST /api/killswitch``, ``POST /api/capital``,
-``POST /api/password`` and ``POST /api/control``.
+``/api/session``, ``/api/paper``, ``/api/market``, ``/api/binance``, ``/api/keys``,
+``/api/risk``, ``/api/alerts``, ``/api/capital``, ``/api/lab``, ``/api/logs``,
+``/api/settings``, ``GET /api/killswitch``, ``POST /api/killswitch``, ``POST /api/keys``,
+``POST /api/capital``, ``POST /api/password`` and ``POST /api/control``.
 
 The last three are read-only views for the AI Lab, the system logs and the settings
 page: the lab joins the run history with the report the program wrote, the logs read
@@ -102,7 +113,7 @@ from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 
 from . import __version__
-from .binance import key_health
+from .binance import PRODUCTION_HOSTS, TESTNET_HOST, key_health
 from .config import is_loopback
 from .credentials import (
     DEFAULT_MIN_LENGTH,
@@ -119,6 +130,8 @@ from .memory import Memory
 from .repro import fingerprint as repro_fingerprint
 from .risk_report import limits_report
 from .risk_rules import LIMITS, SEALED_DIGEST, digest_of, is_sealed
+from .secrets import DEFAULT_FILE as DEFAULT_SECRET_FILE
+from .secrets import SecretError, SecretStore
 from .session import Session
 
 COOKIE_NAME = "st_session"
@@ -129,6 +142,11 @@ LOGIN_FAILURE_WINDOW_S = 300.0
 #: is filed as ``ALERT_KIND``; a switch action is its own kind - the same one the
 #: switch is given wherever else it stops something.
 KILL_SWITCH_KIND = "kill_switch"
+
+#: The kind of ``risk_events`` row a rail-credential change is filed under.  The row records
+#: *which* name changed and who changed it - never a value, because a value never leaves the
+#: store (:mod:`selftrade.secrets`).
+KEY_STORE_KIND = "key_store"
 MAX_REASON_CHARS = 300
 HISTORY_TAIL = 5
 
@@ -438,6 +456,171 @@ class MarketFeed:
 # --------------------------------------------------------------------------
 # the Binance key panel: the ``binance check`` report, cached
 # --------------------------------------------------------------------------
+
+class KeysPanel:
+    """The rail credentials: what is available, where it comes from, and nothing else.
+
+    The dashboard has always been able to *report* a missing key (``/api/binance``) and never
+    able to accept one, because the project reads secrets from the environment.  This panel is
+    the deliberate exception the operator asked for, and it keeps every rule that made the
+    read-only version safe:
+
+    * the **environment wins** - a name exported in the shell is the value the rail uses, and
+      the snapshot says so, so a machine that already exports the pair cannot be surprised by
+      a file someone left lying around;
+    * **no value is ever returned**, by any method: the snapshot carries the name, the source,
+      whether it is set and a **fingerprint** (a SHA-256 prefix), which answers "did it change?"
+      without answering "what is it?";
+    * the names are a **fixed list** of what this machine's rails actually read, so this cannot
+      become a place to park an arbitrary secret under an arbitrary name;
+    * a write needs ``confirm: true``, exactly like the kill switch and a capital movement, and
+      it is **audited** as a ``key_store`` risk event naming the credential - never the value;
+    * storing a key **arms nothing**.  ``binance.enabled``, ``live`` and ``--live`` still gate
+      every order, and the sealed risk gate and the kill switch still gate each one, which is
+      why the snapshot reports the rail's own switches beside the credentials.
+    """
+
+    #: ``(label, attribute)`` on ``settings.binance`` - the only names this panel will touch.
+    NAMES: tuple[tuple[str, str, str], ...] = (
+        # (label, attribute on settings.binance, role the page pairs with its own field)
+        ("Binance API key", "api_key_env", "key"),
+        ("Binance API secret", "api_secret_env", "secret"),
+    )
+
+    def __init__(self, settings: Any):
+        self.settings = settings
+        self.path = str(
+            getattr(settings.binance, "key_file", None) or DEFAULT_SECRET_FILE
+        )
+
+    def store(self) -> SecretStore:
+        return SecretStore(self.path)
+
+    def names(self) -> list[tuple[str, str, str]]:
+        return [
+            (label, str(getattr(self.settings.binance, attr, "")), role)
+            for label, attr, role in self.NAMES
+        ]
+
+    def snapshot(self) -> dict[str, Any]:
+        """Everything the page shows, and no value anywhere in it."""
+        pairs = self.names()
+        described = self.store().describe([name for _, name, _role in pairs])
+        by_name = {entry["name"]: entry for entry in described["vars"]}
+        rail = self.settings.binance
+        base_url = str(getattr(rail, "base_url", "") or "")
+        host = base_url.split("//", 1)[-1].split("/", 1)[0].lower()
+        return {
+            "ok": True,
+            "file": described["file"],
+            "exists": described["exists"],
+            "corrupt": described["corrupt"],
+            "material": described["material"],
+            "environment_wins": True,
+            "max_value_chars": described["max_value_chars"],
+            "entries": [
+                {
+                    "label": label,
+                    "variable": name,
+                    "role": role,
+                    **{
+                        k: v
+                        for k, v in by_name.get(
+                            name, {"name": name, "set": False, "source": None}
+                        ).items()
+                        if k != "name"
+                    },
+                }
+                for label, name, role in pairs
+            ],
+            "rail": {
+                "name": "binance",
+                "enabled": bool(getattr(rail, "enabled", False)),
+                "live": bool(getattr(rail, "live", False)),
+                "allow_production": bool(getattr(rail, "allow_production", False)),
+                "base_url": base_url,
+                "host_is_testnet": TESTNET_HOST in base_url,
+                "production": host in PRODUCTION_HOSTS,
+                "probe": "/api/binance",
+            },
+            "note": (
+                described["note"]
+                + " Storing a value here changes what this rail can sign with, never whether it"
+                " sends anything: the key probe is what says whether a stored key actually"
+                " works."
+            ),
+        }
+
+    def act(self, action: Any, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Store or forget one credential.  Confirmed, named, audited, never echoed."""
+        if body.get("confirm") is not True:
+            return 400, {
+                "ok": False,
+                "error": "confirmation required",
+                "confirm_required": True,
+                "hint": "storing or clearing a credential is a write: send confirm=true to do it",
+            }
+        known = {name: label for label, name, _role in self.names()}
+        wanted = str(body.get("name") or "")
+        if wanted not in known:
+            return 400, {
+                "ok": False,
+                "error": f"{wanted or 'no name'} is not a credential this machine reads",
+                "hint": "this page stores only: " + ", ".join(sorted(known)),
+            }
+        store = self.store()
+        try:
+            if action == "set":
+                store.set(wanted, body.get("value"), by=str(body.get("by") or "dashboard"))
+                result = "stored"
+            elif action == "clear":
+                result = "removed" if store.clear(wanted) else "was not stored"
+            else:
+                return 400, {
+                    "ok": False,
+                    "error": f"unknown action {action!r}",
+                    "actions": ["set", "clear"],
+                }
+        except SecretError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+
+        event_id, event_error = self._record(str(action), wanted, known[wanted], body)
+        out = self.snapshot()
+        out.update(
+            action=str(action),
+            name=wanted,
+            label=known[wanted],
+            result=result,
+            event_id=event_id,
+            event_error=event_error,
+        )
+        return 200, out
+
+    def _record(
+        self, action: str, name: str, label: str, body: dict[str, Any]
+    ) -> tuple[int | None, str | None]:
+        """File the change where the other security-relevant decisions are audited.
+
+        Returns ``(row_id, error)`` so the page can say "recorded" and "could not record it"
+        as two different things - and the row names the credential without holding a value.
+        """
+        try:
+            row = Memory(self.settings.memory.db).add_risk_event(
+                None,
+                KEY_STORE_KIND,
+                f"rail credential {action} from the dashboard: {label} ({name})",
+                {
+                    "action": action,
+                    "name": name,
+                    "label": label,
+                    "by": str(body.get("by") or "dashboard"),
+                    "file": self.path,
+                },
+            )
+            return int(row), None
+        except Exception as exc:  # noqa: BLE001 - reported to the operator, never hidden
+            return None, str(exc)
+
 
 class KeyHealth:
     """The state of the Binance key, cached for ``dashboard.key_refresh_s`` seconds.
@@ -1789,6 +1972,7 @@ def api_get(
     backtest: "BacktestRunner | None" = None,
     capital: "CapitalPanel | None" = None,
     auth: "Auth | None" = None,
+    keys_panel: "KeysPanel | None" = None,
 ) -> tuple[int, Any]:
     memory = Memory(settings.memory.db)
     if path == "/api/health":
@@ -1842,6 +2026,11 @@ def api_get(
         force = str((q.get("force") or [""])[0]).lower() in ("1", "true", "yes")
         handler = keys if keys is not None else KeyHealth(settings)
         return 200, handler.snapshot(force=force)
+    if path == "/api/keys":
+        # What credentials this machine has, where each comes from, and nothing else: no
+        # endpoint ever returns a value.  The names are the rails' own, from the config.
+        panel = keys_panel if keys_panel is not None else KeysPanel(settings)
+        return 200, panel.snapshot()
     if path == "/api/killswitch":
         panel = switch if switch is not None else KillSwitchPanel(settings)
         return 200, panel.snapshot()
@@ -1964,6 +2153,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     risk: RiskLimitsPanel = None
     alerts: AlertsPanel = None
     capital: CapitalPanel = None
+    keys_panel: KeysPanel = None
     runner: LoopRunner = None
     backtest: BacktestRunner = None
     server_version = "selftrade-dashboard"
@@ -2070,6 +2260,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             code, obj = api_get(
                 self.settings, path, query, self.feed, self.keys, self.switch, self.risk,
                 self.alerts, self.runner, self.backtest, self.capital, self.auth,
+                self.keys_panel,
             )
             self._send(code, obj)
 
@@ -2118,7 +2309,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/capital":
             self._api(lambda: self._capital(body))
             return
+        if path == "/api/keys":
+            self._api(lambda: self._keys(body))
+            return
         self._send(404, {"error": "not found", "path": path})
+
+    def _keys(self, body: dict[str, Any]) -> None:
+        """Store or forget one rail credential.
+
+        The confirmation is enforced here rather than only in the page, for the same reason the
+        kill switch and a capital movement enforce it: a request that never said "yes" must not
+        write a credential, whoever sent it.  The response is the same snapshot the GET returns,
+        so it carries no value either.
+        """
+        panel = self.keys_panel if self.keys_panel is not None else KeysPanel(self.settings)
+        code, obj = panel.act(body.get("action"), body)
+        self._send(code, obj)
 
     def _capital(self, body: dict[str, Any]) -> None:
         """Credit, withdraw, allocate or release simulated capital.
@@ -2273,12 +2479,13 @@ def make_server(settings: Any, host: str | None = None, port: int | None = None)
     risk = RiskLimitsPanel(settings)
     alerts = AlertsPanel(settings)
     capital = CapitalPanel(settings)
+    keys_panel = KeysPanel(settings)
     runner = LoopRunner(settings, config_path=getattr(settings, "config_path", None))
     backtest = BacktestRunner(settings)
     handler = type("BoundHandler", (DashboardHandler,), {
         "settings": settings, "auth": auth, "feed": feed, "keys": keys, "switch": switch,
-        "risk": risk, "alerts": alerts, "capital": capital, "runner": runner,
-        "backtest": backtest,
+        "risk": risk, "alerts": alerts, "capital": capital, "keys_panel": keys_panel,
+        "runner": runner, "backtest": backtest,
     })
     # ``port=None`` -> the configured port; ``port=0`` -> an ephemeral port (tests).
     return ThreadingHTTPServer((bind, port if port is not None else settings.dashboard.port), handler)

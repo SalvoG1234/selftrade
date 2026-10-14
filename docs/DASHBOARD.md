@@ -187,6 +187,56 @@ The panel needs `binance.enabled: true` to reach the exchange and **never** need
 `binance.live`: the two arming keys of the order rail (`binance.live` +
 `--live`) do not apply here, because this path cannot place an order.
 
+## The API keys page
+
+Every other secret in this project is addressed by the **name** of the environment
+variable that holds it — `config.yaml` carries the names, never the values. The rail's
+key pair is the one credential that has to be typed somewhere, so it has a page.
+
+**What it shows.** One tile per credential (`SELFTD_BINANCE_API_KEY`,
+`SELFTD_BINANCE_API_SECRET`, i.e. whatever `binance.api_key_env` / `api_secret_env`
+say), each with three things: whether a value is set, **which source is in force**
+(`from the environment (wins)` or `from the local key file`) and a SHA-256
+**fingerprint** — enough to see that a key changed, not enough to learn it. The rail's
+own switches (`enabled`, `live`, the host, and whether it is the Testnet one) are listed
+with them, because a key arms nothing.
+
+**What it writes.** `POST /api/keys` stores or forgets one of those names in
+`binance.key_file` (`state/secrets.json` by default, which `.gitignore` keeps out of the
+repository), written atomically and owner-only (`0600` where the platform honours it) —
+the same discipline the dashboard password uses. It is a write, so it needs
+`confirm: true` in the body *and* a confirmation on the page, and it is filed as a
+`key_store` `risk_events` row naming the credential and the action. **No method of the
+API ever returns a value**, the names are the rails' own rather than free-form, and a
+corrupt store resolves every name to nothing (the rail refuses to arm) instead of
+failing quietly.
+
+The page states the two things a reader needs to know:
+
+* **the environment still wins.** A value exported in the shell is the one the rail
+  uses; the file is only read when that variable is empty, and the tile says which one
+  is in force. "Clear stored" removes the value **you** stored — it cannot and does not
+  touch a variable of the same name.
+* **the file is clear text.** An API secret has to be *sent* to the exchange, so it
+  cannot be hashed the way the dashboard password is. Whoever can read that file can
+  use the key — and whoever can read it can already rewrite this project's database, its
+  reports and the password record beside it. A key that must not be readable by the
+  account running this program does not belong in it.
+
+```powershell
+curl.exe -b cookies.txt http://127.0.0.1:8787/api/keys
+curl.exe -b cookies.txt -X POST http://127.0.0.1:8787/api/keys -H "Content-Type: application/json" -d "{\"action\":\"set\",\"name\":\"SELFTD_BINANCE_API_KEY\",\"value\":\"...\",\"confirm\":true}"
+```
+
+Whether a stored key *works* is still the probe's answer, and the probe keeps living
+with the rail on **Paper Trading**: this page shows its last verdict and offers *run it
+now* and *see every step* rather than a second copy of the same card.
+
+```powershell
+# the page writes the file the CLI and the rail already read, in another process
+python -m selftrade binance check --set binance.enabled=true
+```
+
 ## The emergency stop
 
 The **Emergency stop** card sits at the top of the page, answers "are new orders
@@ -411,11 +461,13 @@ there is no hover to trigger it.
 ## Page
 
 Panels: the emergency stop, the risk limits, the alerts, the live market chart, the
-Binance key panel, overview
+Binance key panel, the **rail credentials** (API keys), the simulated capital account,
+overview
 (run/candidate/hall counts, champion), the paper session, the paper equity curve, the
 hall of fame, recent experiments, paper trades, lessons and run history — plus the loop
-controls in the header. Buttons post to `/api/control` (the loop) or `/api/killswitch`
-(the stop).
+controls in the header. Buttons post to `/api/control` (the loop), `/api/killswitch`
+(the stop), `/api/capital` (a simulated movement) and `/api/keys` (a rail credential),
+all four behind an explicit confirmation.
 
 ## JSON API
 
@@ -431,6 +483,8 @@ cookie when `auth` is on.
 | GET | `/api/health` | version and database reachability |
 | GET | `/api/market` | live candles + 24h stats (public Binance data) |
 | GET | `/api/binance` | the `binance check` report: permissions, clock, balances, open orders (`?force=1` re-probes) |
+| GET | `/api/keys` | the **rail credentials** as the API keys page shows them: `file`, `exists`, `corrupt`, `material` (`clear text`), `environment_wins`, `max_value_chars`, one `entries[]` per name (`label`, `variable`, `role`, `set`, `source` = `environment`/`file`/`null`, `stored`, `environment`, `fingerprint`, `changed_at`, `changed_by`) and the rail's own `enabled`/`live`/host. **No value, ever** — a name, a source and a digest |
+| POST | `/api/keys` | `{"action":"set\|clear","name":"SELFTD_BINANCE_API_KEY","value":"…","confirm":true}` → the same snapshot plus `action`, `name`, `label`, `result` (`stored`/`removed`/`was not stored`) and `event_id` (or `event_error`). `400`, **nothing written**, on a missing confirmation, a name the rails do not read, an empty or whitespace-broken value, or an unreadable key file |
 | GET | `/api/killswitch` | the kill switch: `blocked`, `reason`, `triggered_by`, `triggered_at`, the last 5 events. A file read — no network, no exchange, no rate budget |
 | POST | `/api/killswitch` | `{"action":"arm\|reset","reason":"…","confirm":true}` -> the state after the write, plus `event_id` (or `event_error`) |
 | GET | `/api/risk` | the sealed caps with the paper session measured against them: per limit `value`, `limit`, `ok`, `headroom`, `source`, `arms`, plus `breached`/`would_arm`/`nearest` and `alerts`/`pending` (whether the alert channel is on, and the notices it still owes). A database read — no writes |
@@ -455,10 +509,12 @@ cookie when `auth` is on.
 `python -m selftrade evolve --session` (detached, logged to `state/loop.log`, pid in the
 answer and in `state/session.json`), and `pause`/`resume`/`stop` are delivered to it at
 its next generation boundary. A POST whose `Origin` is not the dashboard's own host is
-refused with `403` (belt to `SameSite=Strict`'s braces), and `POST /api/killswitch`
-additionally refuses any body that does not carry `confirm: true` (`400`, nothing
-written) — the two write endpoints differ in what a mistake costs: one pauses a
-research loop, the other stops trading.
+refused with `403` (belt to `SameSite=Strict`'s braces), and every write body must carry
+an explicit `confirm: true` (`400`, nothing written): `POST /api/killswitch`,
+`POST /api/capital` and `POST /api/keys`. The write endpoints differ in what a mistake
+costs — one pauses a research loop, one stops trading, one moves simulated capital, one
+replaces the credential a rail signs with — so the confirmation is enforced **on the
+server**, not only on the page.
 
 Examples:
 
@@ -511,10 +567,10 @@ curl.exe -b cookies.txt -X POST http://127.0.0.1:8787/api/control -H "Content-Ty
 
 The page is a single inline document (`selftrade/dashboard_ui.py`, imported by
 `dashboard.py` so the server logic stays separate from the presentation) with a
-collapsible sidebar, a top status bar and eleven hash-routed views, grouped in the rail as
+collapsible sidebar, a top status bar and twelve hash-routed views, grouped in the rail as
 **Market** (Overview, Market), **Research** (Strategy Lab, Experiments), **Trading &
-risk** (Paper Trading, Capital, Risk Center), **Agent** (Agent & Memory, Memory &
-Knowledge) and **System** (System Logs, System). A dark theme is the default; a light theme is one token
+risk** (Paper Trading, Capital, API keys, Risk Center), **Agent** (Agent & Memory, Memory
+& Knowledge) and **System** (System Logs, System). A dark theme is the default; a light theme is one token
 override behind the **theme** button. Green and red mean a positive and a negative
 change and nothing else; cyan/violet mark the AI surfaces.
 
@@ -531,6 +587,7 @@ guess which copy is the live one.
 | **Market** | the live public chart — pair, interval, last price, 24h change, **24h high/low/volume/quote volume/trades**, the feed status, latency and fetch timestamp — and an explicit statement of what the page is not: no key, no account, no order. Its pair/interval is the one the Overview shows (one shared selection) | `/api/market` |
 | **Paper Trading** | the Binance key probe, the paper session, positions/exposure and the trade log — the rail and what it runs, without the market chart, the account or the risk panels | `/api/binance`, `/api/paper`, `/api/trades` |
 | **Capital** | the **account that funds the paper rail**: free balance, what was credited / withdrawn / allocated, the per-credit cap and total ceiling, one confirm-gated movement at a time (credit, withdraw, fund the session, release) and the append-only ledger with the reason on every row. A card spells out what a top-up is and is not: a local row, no exchange, no key, no order — the real rails read their own balance, not this ledger (`docs/CAPITAL.md`) | `/api/capital`, `POST /api/capital` |
+| **API keys** | where the rail's key pair comes from: one tile per credential the config names, showing whether it is set, **which source is in force** (an exported variable always wins over the local file) and a SHA-256 fingerprint of the value — plus the only form on the page: paste a key and/or a secret and **store the pair** (confirmation first, then a `key_store` audit row). The card below it states what storing a key does and does not do, and the probe's verdict is one button away rather than a second copy of that panel | `/api/keys`, `POST /api/keys` |
 | **Risk Center** | the **emergency stop** (state first — it must never be the panel left stale by a slow neighbour), the **risk limits** measured against the sealed caps with the room left and what a breach would do, and the **alerts** card: what the channel actually delivered. The stop keeps its confirm-gated arm/reset and its audit records | `/api/killswitch`, `/api/risk`, `/api/alerts` |
 | **AI Lab** | the Collect → Hypothesize → Backtest → Validate → Paper-trade → Learn cycle, the run summary, the reproducibility record, the critic verdict, the autopsy, the version history with its diffs and the per-experiment table — and a **re-run & compare** on each version, which re-evaluates that exact genome on the folds window and says whether its stored fitness reproduces | `/api/lab`, `/api/backtest` |
 | **Agent & Memory** | the subsystems the program actually runs, their real state, dependencies, last activity and error counts — with its own copy of the loop controls (start/pause/resume/stop), a refresh, and a row that expands into *where each state came from* | `/api/session`, `/api/risk`, `/api/alerts`, `/api/binance`, `/api/market`, `/api/lab`, `/api/logs` |

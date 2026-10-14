@@ -57,14 +57,34 @@ binance:
   (exit 3), exactly like a typo.
 
 Credentials come from the environment variables **named** in the config
-(`SELFTD_BINANCE_API_KEY`, `SELFTD_BINANCE_API_SECRET`). They are never written to
-the config file, the repository, a recorded call or a log line; the `signature` is
-redacted in the audit trail and the API key header is not stored at all. A test
-asserts that neither value appears in anything the adapter records.
+(`SELFTD_BINANCE_API_KEY`, `SELFTD_BINANCE_API_SECRET`), and, when one of those is
+empty, from the local key file `binance.key_file` (`state/secrets.json` by default)
+that the dashboard's **API keys** page writes — the **environment always wins**, so a
+machine that exports the pair can never be surprised by a file someone left behind.
+Either way the value is never written to the config file, the repository, a recorded
+call or a log line; the `signature` is redacted in the audit trail and the API key
+header is not stored at all. A test asserts that neither value appears in anything the
+adapter records, and that no API endpoint ever returns one.
 
 **To get keys**: log in to https://testnet.binance.vision/ with GitHub, generate
-an API key there, and export both values in your own shell. Never paste them into
-this repository, and never into a chat.
+an API key there, and either export both values in your own shell or paste them once
+into the dashboard's **API keys** page (confirmation first, and a `key_store` audit row
+after) — see `docs/DASHBOARD.md`. Never paste them into this repository, and never into
+a chat.
+
+```powershell
+# either: export them for the process (the environment wins over any stored copy)
+$env:SELFTD_BINANCE_API_KEY = "..."
+$env:SELFTD_BINANCE_API_SECRET = "..."
+
+# or: let the dashboard store them, then check from the terminal
+.\run.ps1 binance check --set binance.enabled=true
+#   ok   credentials  both credentials are available (SELFTD_BINANCE_API_KEY from the
+#                     local key file, SELFTD_BINANCE_API_SECRET from the local key file)
+```
+
+The step now names **where each credential came from**, because "the rail can sign" and
+"you exported it yourself" are different states for an operator to tell apart.
 
 ## 2a. Start here: `binance check`
 
@@ -83,7 +103,7 @@ binance account check (Spot Testnet) - read-only: no order can come out of this 
   host          https://testnet.binance.vision/api
   mode          paper   armed=False
   credentials   SELFTD_BINANCE_API_KEY=set, SELFTD_BINANCE_API_SECRET=set
-  ok   credentials  both environment variables are set (their values are never read back or printed)
+  ok   credentials  both credentials are available (SELFTD_BINANCE_API_KEY from the environment, SELFTD_BINANCE_API_SECRET from the environment); their values are never read back or printed
   ok   clock        server time - local time = +1046 ms (recvWindow 5000 ms)
   FAIL signature    Binance refused the signed call: -2014 API-key format invalid.
   ok   read_only    2 call(s) this run (GET): 0 POST
