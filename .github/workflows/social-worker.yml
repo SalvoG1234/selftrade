@@ -137,7 +137,7 @@ jobs:
       # Drafts and reports only: the database stays in the cache rather than in an
       # artifact, because it is the audit trail and an artifact is not a backup.
       - name: Upload the drafts, the calendar and the reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: social-reports-${{ github.run_number }}
